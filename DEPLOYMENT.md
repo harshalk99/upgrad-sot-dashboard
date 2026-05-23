@@ -1,6 +1,6 @@
 # Azure Deployment Runbook
 
-This app deploys to **Azure App Service (Linux, Node 20)** via GitHub Actions.
+This app deploys to **Azure App Service (Linux, Node 22)** via GitHub Actions.
 
 Stack:
 - Next.js 16 in **standalone output** mode (`output: 'standalone'`) — produces a self-contained `server.js` so we ship ~30 MB instead of the full `node_modules`.
@@ -15,24 +15,25 @@ You can do this in the portal or via the `az` CLI. CLI is faster — paste these
 
 ```bash
 # === Variables ===
-RG="rg-ugsot"
-LOCATION="centralindia"          # or wherever your other resources live
+RG="upgrad_sotm"                 # existing resource group
+LOCATION="centralindia"          # MUST match RG location — verify with:
+                                 #   az group show -n upgrad_sotm --query location -o tsv
 PLAN="asp-ugsot-linux"
 APP="ugsot-dashboard"            # must be globally unique
 SKU="B1"                         # B1 is enough for staging; P1v3 for prod
 
-# === 1. Resource group ===
-az group create -n $RG -l $LOCATION
+# === 1. Resource group (skip if it already exists) ===
+# az group create -n $RG -l $LOCATION
 
 # === 2. Linux App Service plan ===
 az appservice plan create \
   -g $RG -n $PLAN \
   --is-linux --sku $SKU
 
-# === 3. Web App with Node 20 ===
+# === 3. Web App with Node 22 ===
 az webapp create \
   -g $RG -n $APP -p $PLAN \
-  --runtime "NODE:20-lts"
+  --runtime "NODE:22-lts"
 
 # === 4. Startup command (runs from /home/site/wwwroot after deploy) ===
 az webapp config set \
@@ -46,7 +47,7 @@ az webapp config set -g $RG -n $APP --always-on true
 # Replace the right-hand sides before pasting.
 az webapp config appsettings set -g $RG -n $APP --settings \
   NODE_ENV=production \
-  WEBSITE_NODE_DEFAULT_VERSION=20 \
+  WEBSITE_NODE_DEFAULT_VERSION=22 \
   SCM_DO_BUILD_DURING_DEPLOYMENT=false \
   NEXT_PUBLIC_SUPABASE_URL="https://lcfkznqziubuefwnvqlb.supabase.co" \
   NEXT_PUBLIC_SUPABASE_ANON_KEY="<paste from Supabase>" \

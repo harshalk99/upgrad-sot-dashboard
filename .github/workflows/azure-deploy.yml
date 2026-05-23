@@ -1,4 +1,4 @@
-# Deploy the UGSOT dashboard to Azure App Service (Linux, Node 20).
+# Deploy the UGSOT dashboard to Azure App Service (Linux, Node 22).
 #
 # Trigger: push to main, or manual dispatch.
 #
@@ -34,10 +34,10 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Node 20
+      - name: Setup Node 22
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "22"
           cache: "npm"
           cache-dependency-path: ugsot-dashboard/package-lock.json
 
