@@ -37,7 +37,6 @@ export function LiveActivityFeed({ events }: { events: ActivityEvent[] }) {
 
 function CallRow({ e }: { e: Extract<ActivityEvent, { kind: 'call' }> }) {
   const status = (e.call_status ?? '').toLowerCase();
-  const ok = !e.flagged && !e.malfunction;
   return (
     <div className="grid grid-cols-[auto_1fr_auto] items-start gap-3 text-xs">
       <span

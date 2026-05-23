@@ -78,12 +78,6 @@ function downloadCsv(rows: Record<string, unknown>[], baseName: string) {
   toast.success('CSV downloaded');
 }
 
-/** Truncate a summary to ~120 chars for inline display. */
-function truncateSummary(s: string | null | undefined, max = 120): string {
-  if (!s) return '';
-  return s.length > max ? `${s.slice(0, max).trimEnd()}…` : s;
-}
-
 /** Inline copy-to-clipboard button. Used for LS IDs which clients sometimes
  *  need to paste into LeadSquared search. */
 function CopyButton({ value, label }: { value: string; label?: string }) {

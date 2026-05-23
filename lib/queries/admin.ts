@@ -283,7 +283,6 @@ export async function getCallLogDetail(sb: SB, callId: string): Promise<CallLogD
     .maybeSingle();
   if (!cl) return null;
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const { data: lead } = cl.customer_id
     ? // eslint-disable-next-line @typescript-eslint/no-explicit-any
       await (sb as any)
