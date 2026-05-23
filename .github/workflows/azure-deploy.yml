@@ -1,0 +1,91 @@
+# Deploy the UGSOT dashboard to Azure App Service (Linux, Node 20).
+#
+# Trigger: push to main, or manual dispatch.
+#
+# Required GitHub repo secrets (configured under Settings → Secrets and variables):
+#   AZURE_WEBAPP_PUBLISH_PROFILE   — paste of the .PublishSettings XML from the
+#                                    App Service portal (Deployment Center →
+#                                    Manage publish profile → Download).
+#
+# Required GitHub repo variables (Settings → Secrets and variables → Variables):
+#   AZURE_WEBAPP_NAME              — e.g. "ugsot-dashboard"
+#
+# All app settings (SUPABASE_*, ELEVENLABS_API_KEY, AZURE_OPENAI_*, etc.) are
+# configured directly on the App Service — NOT in this workflow. See DEPLOYMENT.md.
+
+name: Deploy to Azure App Service
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+concurrency:
+  group: azure-deploy-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: ugsot-dashboard/package-lock.json
+
+      - name: Install dependencies
+        working-directory: ugsot-dashboard
+        run: npm ci
+
+      - name: Type-check
+        working-directory: ugsot-dashboard
+        run: npm run typecheck
+
+      - name: Lint
+        working-directory: ugsot-dashboard
+        run: npm run lint --if-present
+
+      - name: Build (Next.js standalone output)
+        working-directory: ugsot-dashboard
+        env:
+          # NEXT_PUBLIC_* are inlined at build time. Server-only secrets are
+          # injected by App Service at runtime — do NOT add them here.
+          NEXT_PUBLIC_SUPABASE_URL: ${{ vars.NEXT_PUBLIC_SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ vars.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+          NEXT_PUBLIC_SENTRY_DSN: ${{ vars.NEXT_PUBLIC_SENTRY_DSN }}
+        run: npm run build
+
+      - name: Assemble standalone bundle
+        working-directory: ugsot-dashboard
+        run: |
+          # Next.js standalone output writes a minimal server.js + tracing-only
+          # node_modules into .next/standalone. Static assets and /public are
+          # NOT copied automatically — we have to layer them in.
+          mkdir -p .next/standalone/.next
+          cp -R .next/static .next/standalone/.next/static
+          if [ -d public ]; then cp -R public .next/standalone/public; fi
+          # Surface a tiny package.json so App Service's auto-detection picks
+          # Node and runs `npm start` → `node server.js`.
+          cat > .next/standalone/package.json <<'JSON'
+          {
+            "name": "ugsot-dashboard-standalone",
+            "private": true,
+            "scripts": { "start": "node server.js" },
+            "engines": { "node": ">=20.0.0" }
+          }
+          JSON
+
+      - name: Deploy to Azure Web App
+        uses: azure/webapps-deploy@v3
+        with:
+          app-name: ${{ vars.AZURE_WEBAPP_NAME }}
+          publish-profile: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE }}
+          package: ugsot-dashboard/.next/standalone
