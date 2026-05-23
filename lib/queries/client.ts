@@ -67,7 +67,8 @@ export async function getClientMinutesSummary(sb: SB) {
 }
 
 /** Top objections raised in conversations over the last N days. Aggregates the
- *  comma-separated `objections_raised` text column. Filters out "none"/"n/a". */
+ *  comma-separated `objections_raised` text column. Filters out "none"/"n/a".
+ *  Excludes flagged calls — those are post-cleanup bad data we don't trust. */
 export async function getClientTopObjections(sb: SB, lastNDays = 30, limit = 10) {
   const since = new Date(Date.now() - lastNDays * 24 * 60 * 60 * 1000).toISOString();
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -76,7 +77,8 @@ export async function getClientTopObjections(sb: SB, lastNDays = 30, limit = 10)
     .select('objections_raised')
     .not('objections_raised', 'is', null)
     .neq('objections_raised', '')
-    .gte('call_start', since);
+    .gte('call_start', since)
+    .not('call_flagged', 'is', true);
   const counts = new Map<string, number>();
   for (const row of (data ?? []) as { objections_raised: string | null }[]) {
     if (!row.objections_raised) continue;
@@ -93,13 +95,14 @@ export async function getClientTopObjections(sb: SB, lastNDays = 30, limit = 10)
 }
 
 /** Distribution of conversation_depth labels (e.g. "shallow", "deep") across all
- *  classified calls. Returns rows ordered by count desc. */
+ *  classified calls. Returns rows ordered by count desc. Excludes flagged calls. */
 export async function getClientConversationDepth(sb: SB) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const { data } = await (sb as any)
     .from('upgrad_call_logs')
     .select('conversation_depth')
-    .not('conversation_depth', 'is', null);
+    .not('conversation_depth', 'is', null)
+    .not('call_flagged', 'is', true);
   const counts = new Map<string, number>();
   for (const r of (data ?? []) as { conversation_depth: string | null }[]) {
     if (!r.conversation_depth) continue;
@@ -112,13 +115,15 @@ export async function getClientConversationDepth(sb: SB) {
 
 /** Average call duration across connected calls (duration > 0). Returned in
  *  seconds. Per UGSOT request 2026-05-23 (overview-only): show on the Overview
- *  metric strip — replaces the Callbacks Pending card. */
+ *  metric strip — replaces the Callbacks Pending card. Excludes flagged calls
+ *  (post-cleanup bad data — see migration exclude_flagged_calls_from_admin_aggregates). */
 export async function getClientAvgCallDuration(sb: SB) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const { data } = await (sb as any)
     .from('upgrad_call_logs')
     .select('duration_seconds')
-    .gt('duration_seconds', 0);
+    .gt('duration_seconds', 0)
+    .not('call_flagged', 'is', true);
   const rows = (data ?? []) as { duration_seconds: number }[];
   const n = rows.length;
   if (n === 0) return { avg_seconds: 0, connected_calls: 0 };

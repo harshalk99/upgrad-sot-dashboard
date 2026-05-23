@@ -357,6 +357,8 @@ export async function getDndDetections(sb: SB, lastNDays = 7, limit = 100) {
     .select('call_id, call_start, lead_name, lead_phone, duration_seconds, transcript_summary')
     .eq('dnd', true)
     .gte('call_start', since)
+    // Exclude post-cleanup flagged junk
+    .not('call_flagged', 'is', true)
     .order('call_start', { ascending: false, nullsFirst: false })
     .limit(limit);
   return data ?? [];
@@ -372,7 +374,8 @@ export async function getTopObjections(sb: SB, lastNDays = 30): Promise<Objectio
     .select('objections_raised')
     .not('objections_raised', 'is', null)
     .neq('objections_raised', '')
-    .gte('call_start', since);
+    .gte('call_start', since)
+    .not('call_flagged', 'is', true);
   // Aggregate in JS — objections_raised is comma-separated text.
   const counts = new Map<string, number>();
   for (const row of (data ?? []) as { objections_raised: string | null }[]) {
@@ -395,7 +398,8 @@ export async function getAvgDurationByStage(sb: SB) {
     .from('v_admin_call_logs')
     .select('lead_stage, duration_seconds')
     .not('lead_stage', 'is', null)
-    .gt('duration_seconds', 0);
+    .gt('duration_seconds', 0)
+    .not('call_flagged', 'is', true);
   const acc = new Map<string, { total: number; n: number }>();
   for (const r of (data ?? []) as { lead_stage: string; duration_seconds: number }[]) {
     const e = acc.get(r.lead_stage) ?? { total: 0, n: 0 };
@@ -417,7 +421,8 @@ export async function getConversationDepthDist(sb: SB) {
   const { data } = await (sb as any)
     .from('upgrad_call_logs')
     .select('conversation_depth')
-    .not('conversation_depth', 'is', null);
+    .not('conversation_depth', 'is', null)
+    .not('call_flagged', 'is', true);
   const counts = new Map<string, number>();
   for (const r of (data ?? []) as { conversation_depth: string | null }[]) {
     if (!r.conversation_depth) continue;
@@ -434,7 +439,8 @@ export async function getWrongNumberRate(sb: SB, lastNDays = 30) {
   const { data } = await (sb as any)
     .from('upgrad_call_logs')
     .select('disqualification_reason')
-    .gte('call_start', since);
+    .gte('call_start', since)
+    .not('call_flagged', 'is', true);
   let total = 0;
   let wrong = 0;
   for (const r of (data ?? []) as { disqualification_reason: string | null }[]) {
