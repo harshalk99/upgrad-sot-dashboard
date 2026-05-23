@@ -26,14 +26,6 @@ export default async function LoginPage({ searchParams }: { searchParams: Search
       </div>
 
       <LoginForm redirectTo={redirectTo} initialError={error} />
-
-      <p className="mt-6 text-center text-xs text-muted-foreground">
-        Test users: <code className="font-mono">client@ugsot.test</code> /{' '}
-        <code className="font-mono">admin@predixion.test</code> /{' '}
-        <code className="font-mono">superadmin@predixion.test</code>
-        <br />
-        Password: <code className="font-mono">UGSOT-temp-2026!</code>
-      </p>
     </div>
   );
 }
