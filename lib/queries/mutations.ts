@@ -7,7 +7,7 @@
 
 import { revalidatePath } from 'next/cache';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
-import { requireAdmin } from '@/lib/auth/requireRole';
+import { requireAdmin, requireSuperAdmin } from '@/lib/auth/requireRole';
 
 export type TriggerResult =
   | { ok: true; message: string; status: number }
@@ -102,4 +102,118 @@ export async function retryFailedLsPushes(): Promise<TriggerResult> {
   const result = await triggerWorkflow('trigger_egress', { reason: 'manual_retry' });
   revalidatePath('/admin/ls-integration');
   return result;
+}
+
+// ─── Manual lead-stage override (super_admin only) ─────────────────────────
+// Per UGSOT request 2026-05-25: super_admin should be able to reclassify any
+// lead from the leads table via a per-row dropdown. We:
+//   1. Verify the actor is super_admin (server-side, can't be spoofed)
+//   2. Look up which table the lead lives in (active vs archived)
+//   3. UPDATE lead_stage
+//   4. Write an audit row to dashboard_lead_stage_changes
+//   5. Revalidate the pages that show stage counts
+
+export const VALID_LEAD_STAGES = [
+  'AI Bot Qualified - High Intent',
+  'AI Bot Qualified - Warm',
+  'AI Bot Qualified - Low Interest',
+  'AI Bot Called - Not Interested',
+  'AI Bot Called - Not Eligible',
+  'AI Bot Reached - DNP',
+  'AI Bot Reached - CB Later',
+  'AI Bot Sent - Payment Link',
+  'AI Bot Sent - Brochure'
+] as const;
+
+export type LeadStageValue = (typeof VALID_LEAD_STAGES)[number];
+
+export type StageUpdateResult =
+  | { ok: true; previousStage: string | null; newStage: LeadStageValue }
+  | { ok: false; error: string };
+
+export async function updateLeadStageManually(
+  leadId: string,
+  newStage: LeadStageValue,
+  reason?: string
+): Promise<StageUpdateResult> {
+  let user;
+  try {
+    user = await requireSuperAdmin();
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : 'Forbidden' };
+  }
+
+  if (!VALID_LEAD_STAGES.includes(newStage)) {
+    return { ok: false, error: `Invalid stage: ${newStage}` };
+  }
+  if (!leadId || typeof leadId !== 'string') {
+    return { ok: false, error: 'Missing leadId' };
+  }
+
+  const sb = await createSupabaseServerClient();
+
+  // Find which table the lead lives in + capture the current stage
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data: active } = await (sb as any)
+    .from('upgrad_active_leads')
+    .select('id, lead_stage, ls_prospect_id')
+    .eq('id', leadId)
+    .maybeSingle();
+
+  let table: 'upgrad_active_leads' | 'upgrad_archived_leads' = 'upgrad_active_leads';
+  let previousStage: string | null = active?.lead_stage ?? null;
+  let lsProspectId: string | null = active?.ls_prospect_id ?? null;
+  let isArchived = false;
+
+  if (!active) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data: archived } = await (sb as any)
+      .from('upgrad_archived_leads')
+      .select('id, lead_stage, ls_prospect_id')
+      .eq('id', leadId)
+      .maybeSingle();
+    if (!archived) return { ok: false, error: 'Lead not found' };
+    table = 'upgrad_archived_leads';
+    previousStage = archived.lead_stage ?? null;
+    lsProspectId = archived.ls_prospect_id ?? null;
+    isArchived = true;
+  }
+
+  if (previousStage === newStage) {
+    // No-op — return success without writing anything
+    return { ok: true, previousStage, newStage };
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { error: updateErr } = await (sb as any)
+    .from(table)
+    .update({ lead_stage: newStage })
+    .eq('id', leadId);
+
+  if (updateErr) {
+    return { ok: false, error: updateErr.message };
+  }
+
+  // Audit log — fire and forget; don't fail the user-visible action if it errors
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  await (sb as any).from('dashboard_lead_stage_changes').insert({
+    lead_id: leadId,
+    ls_prospect_id: lsProspectId,
+    is_archived: isArchived,
+    previous_stage: previousStage,
+    new_stage: newStage,
+    changed_by: user.id,
+    changed_by_email: user.email ?? null,
+    reason: reason ?? null
+  });
+
+  // Revalidate pages whose counts depend on lead_stage
+  revalidatePath('/dashboard');
+  revalidatePath('/dashboard/dispositions');
+  revalidatePath('/dashboard/leads');
+  revalidatePath('/dashboard/connectivity');
+  // Drill-down paths use dynamic segments; revalidate the layout-level path
+  revalidatePath('/dashboard/dispositions/[stage]', 'page');
+
+  return { ok: true, previousStage, newStage };
 }

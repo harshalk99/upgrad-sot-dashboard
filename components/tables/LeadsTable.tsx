@@ -37,6 +37,7 @@ import {
 } from '@/components/ui/table';
 import { createSupabaseBrowserClient } from '@/lib/supabase/client';
 import type { HotWarmLeadRow, ClientCallSummary } from '@/lib/queries/client';
+import { LeadStageDropdown } from '@/components/admin/LeadStageDropdown';
 import { formatDateOnly, formatDateTimeIST } from '@/lib/formatters';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
@@ -111,7 +112,15 @@ function downloadCsv(rows: Record<string, unknown>[], baseName: string) {
   toast.success('CSV downloaded');
 }
 
-export function LeadsTable({ data }: { data: HotWarmLeadRow[] }) {
+export function LeadsTable({
+  data,
+  userRole
+}: {
+  data: HotWarmLeadRow[];
+  /** Required so we know whether to show the manual stage-override dropdown. */
+  userRole?: 'client' | 'admin' | 'super_admin';
+}) {
+  const isSuperAdmin = userRole === 'super_admin';
   const [sorting, setSorting] = useState<SortingState>([{ id: 'lead_stage', desc: false }]);
   const [globalFilter, setGlobalFilter] = useState('');
   const [reviews, setReviews] = useState<Record<string, boolean>>({});
@@ -248,9 +257,20 @@ export function LeadsTable({ data }: { data: HotWarmLeadRow[] }) {
       {
         accessorKey: 'lead_stage',
         header: 'Stage',
-        size: 180,
+        size: 220,
         cell: ({ row }) => {
           const stage = row.original.lead_stage ?? '';
+          // Super admin gets an inline dropdown to override the stage.
+          // Everyone else sees the read-only badge.
+          if (isSuperAdmin && row.original.lead_uid) {
+            return (
+              <LeadStageDropdown
+                leadId={row.original.lead_uid}
+                currentStage={stage}
+                className="w-full"
+              />
+            );
+          }
           const meta = STAGE_BADGE[stage];
           return meta ? (
             <Badge variant="secondary" className={meta.className}>
@@ -356,7 +376,7 @@ export function LeadsTable({ data }: { data: HotWarmLeadRow[] }) {
       }
     ],
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [expandedId, reviews, reviewPending]
+    [expandedId, reviews, reviewPending, isSuperAdmin]
   );
 
   const table = useReactTable({

@@ -49,7 +49,7 @@ export default async function DispositionStagePage({ params }: PageProps) {
           </span>
         </div>
 
-        <StageLeadsTable leads={leads} stage={stage} />
+        <StageLeadsTable leads={leads} stage={stage} userRole={user.role} />
       </div>
     </>
   );

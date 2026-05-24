@@ -48,8 +48,13 @@ import type {
 import { formatDateOnly, formatDateTimeIST, formatRelative, ordinal } from '@/lib/formatters';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
+import { LeadStageDropdown } from '@/components/admin/LeadStageDropdown';
 
-type Props = { leads: ClientLeadRow[]; stage: string };
+type Props = {
+  leads: ClientLeadRow[];
+  stage: string;
+  userRole?: 'client' | 'admin' | 'super_admin';
+};
 
 function escapeCsv(v: unknown): string {
   if (v == null) return '';
@@ -105,7 +110,8 @@ function CopyButton({ value, label }: { value: string; label?: string }) {
   );
 }
 
-export function StageLeadsTable({ leads, stage }: Props) {
+export function StageLeadsTable({ leads, stage, userRole }: Props) {
+  const isSuperAdmin = userRole === 'super_admin';
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [summaries, setSummaries] = useState<Record<string, ClientCallSummary[] | 'loading' | 'error'>>(
     {}
@@ -232,6 +238,26 @@ export function StageLeadsTable({ leads, stage }: Props) {
           </span>
         )
       },
+      // Stage override — only shown to super_admin. Lets them reclassify a lead
+      // inline; on change, the lead moves out of the current drill-down (the
+      // server action revalidates this route).
+      ...(isSuperAdmin
+        ? [
+            {
+              id: 'stage_override',
+              header: 'Stage',
+              size: 220,
+              enableSorting: false,
+              cell: ({ row }: { row: { original: ClientLeadRow } }) => (
+                <LeadStageDropdown
+                  leadId={row.original.lead_uid}
+                  currentStage={stage}
+                  className="w-full"
+                />
+              )
+            } as ColumnDef<ClientLeadRow>
+          ]
+        : []),
       {
         accessorKey: 'lead_source',
         header: 'Lead Source',
@@ -343,7 +369,7 @@ export function StageLeadsTable({ leads, stage }: Props) {
       }
     ],
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [expandedId, reviews, reviewPending]
+    [expandedId, reviews, reviewPending, isSuperAdmin, stage]
   );
 
   const table = useReactTable({

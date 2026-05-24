@@ -23,7 +23,7 @@ export default async function HotWarmLeadsPage() {
         toolbar={<RefreshButton />}
       />
       <div className="p-6">
-        <LeadsTable data={leads} />
+        <LeadsTable data={leads} userRole={user.role} />
       </div>
     </>
   );
