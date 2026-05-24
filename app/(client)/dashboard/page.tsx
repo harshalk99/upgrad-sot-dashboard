@@ -3,7 +3,7 @@
 //   - Removed Daily-Volume-per-day chart
 //   - Added per-disposition-stage breakdown grid
 //   - Added Source performance + State performance business tables
-import { Flame, Heart, Clock, Timer, XCircle } from 'lucide-react';
+import { Flame, Heart, Clock, Timer } from 'lucide-react';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
 import { getCurrentUser } from '@/lib/auth/getUser';
 import {
@@ -42,11 +42,9 @@ export default async function DashboardOverviewPage() {
       getClientConversationDepth(sb)
     ]);
 
-  // Disqualified = every lead whose stage is NOT Warm and NOT High Intent.
-  // Per UGSOT request 2026-05-23 — replaces the Callbacks Pending card.
-  // Derived from funnel.total_leads − hot − warm so it ties to the disposition sum.
-  const disqualified =
-    (funnel?.total_leads ?? 0) - (funnel?.hot ?? 0) - (funnel?.warm ?? 0);
+  // "Disqualified" card removed 2026-05-24 — the count (total − hot − warm)
+  // was misleading because it lumped DNP, Not Yet Called, and pending callbacks
+  // together with actual disqualifications. Use the Dispositions page instead.
 
   const connectRate =
     funnel?.attempted && funnel.attempted > 0
@@ -93,10 +91,9 @@ export default async function DashboardOverviewPage() {
       />
 
       <div className="space-y-6 p-6">
-        <MetricCardGrid cols={6}>
+        <MetricCardGrid cols={5}>
           <MetricCard title="Hot Leads" value={funnel?.hot ?? 0} icon={Flame} />
           <MetricCard title="Warm Leads" value={funnel?.warm ?? 0} icon={Heart} />
-          <MetricCard title="Disqualified" value={disqualified} icon={XCircle} />
           <MetricCard
             title="Avg Call Duration"
             value={formatDuration(avgCall.avg_seconds)}
