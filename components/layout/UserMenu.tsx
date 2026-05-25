@@ -56,7 +56,9 @@ export function UserMenu({ email, role, displayName }: Props) {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger
-        render={<Button variant="ghost" size="sm" className="gap-2 px-2" />}
+        // type="button" prevents accidental form-submission if any ancestor
+        // ever ends up inside a <form> — base-ui's Button doesn't always set it.
+        render={<Button type="button" variant="ghost" size="sm" className="gap-2 px-2" />}
       >
         <Avatar className="size-7">
           <AvatarFallback className="font-mono text-xs">
