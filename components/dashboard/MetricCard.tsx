@@ -6,10 +6,16 @@
 // Threshold logic: value > critical → red bg; > warn → amber; else neutral.
 
 import Link from 'next/link';
-import { ArrowDown, ArrowRight, ArrowUp, type LucideIcon } from 'lucide-react';
+import { ArrowDown, ArrowRight, ArrowUp, HelpCircle, type LucideIcon } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Skeleton } from '@/components/ui/skeleton';
 import { formatNumber } from '@/lib/formatters';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger
+} from '@/components/ui/tooltip';
 
 export type MetricCardProps = {
   title: string;
@@ -26,6 +32,10 @@ export type MetricCardProps = {
   invert?: boolean;
   /** Override formatting; defaults to en-IN number with no decimals. */
   format?: (v: number | string) => string;
+  /** Optional tooltip text — when provided, renders a (?) icon next to the title
+   *  that reveals this definition on hover. Use it to clarify what the metric
+   *  represents (e.g. "Engaged = Hot + Warm + Callback Later"). */
+  help?: string;
 };
 
 function severityFor(
@@ -57,7 +67,8 @@ export function MetricCard(props: MetricCardProps) {
     loading,
     href,
     invert,
-    format
+    format,
+    help
   } = props;
 
   const severity = severityFor(value, threshold, invert);
@@ -80,8 +91,24 @@ export function MetricCard(props: MetricCardProps) {
       )}
     >
       <div className="flex items-start justify-between gap-2">
-        <div className="text-[10px] font-medium uppercase tracking-widest text-muted-foreground">
-          {title}
+        <div className="flex items-center gap-1 text-[10px] font-medium uppercase tracking-widest text-muted-foreground">
+          <span>{title}</span>
+          {help && (
+            <TooltipProvider delay={200}>
+              <Tooltip>
+                <TooltipTrigger
+                  type="button"
+                  className="inline-flex items-center justify-center rounded-full text-muted-foreground/70 transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                  aria-label={`What does ${title} mean?`}
+                >
+                  <HelpCircle className="size-3" />
+                </TooltipTrigger>
+                <TooltipContent className="max-w-[260px] text-[11px] normal-case tracking-normal">
+                  {help}
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          )}
         </div>
         {Icon && (
           <Icon

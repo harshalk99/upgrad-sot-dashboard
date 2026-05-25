@@ -117,7 +117,7 @@ export default async function DashboardOverviewPage() {
         <div className="grid gap-4 lg:grid-cols-2">
           <ChartCard
             title="Lead Funnel"
-            subtitle="Total → Attempted → Connected → Qualified → Hot/Warm"
+            subtitle="Total → Attempted → Connected → Engaged → Hot/Warm"
             height={260}
           >
             <FunnelChart data={funnel ?? null} />

@@ -28,7 +28,7 @@ export function FunnelChart({ data }: Props) {
       { label: 'Total Leads', value: total, color: 'rgb(100 116 139)' },
       { label: 'Attempted', value: attempted, color: 'rgb(168 85 247)' },
       { label: 'Connected', value: connected, color: 'rgb(59 130 246)' },
-      { label: 'Qualified', value: qualified, color: 'rgb(16 185 129)' },
+      { label: 'Engaged', value: qualified, color: 'rgb(16 185 129)' },
       { label: 'Hot + Warm', value: hotWarm, color: 'rgb(220 38 38)' }
     ];
   }, [data]);

@@ -19,7 +19,7 @@ export function EngagementFunnelChart({ attempted, connected, qualified }: Props
       { label: 'Attempted', value: attempted, color: '#6366f1', hint: 'Unique customers dialed at least once' },
       { label: 'Connected', value: connected, color: '#0ea5e9', hint: 'Had a real conversation with the AI' },
       {
-        label: 'Qualified',
+        label: 'Engaged',
         value: qualified,
         color: '#10b981',
         hint: 'Hot, Warm, or Callback Later'

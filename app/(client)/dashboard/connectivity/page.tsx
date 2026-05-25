@@ -74,16 +74,17 @@ export default async function ConnectivityPage() {
             icon={PhoneCall}
           />
           <MetricCard
-            title="Qualified Leads"
+            title="Engaged Leads"
             value={funnel.qualified}
             subtitle={`${qualRate}% of attempted · ${qualOfConnected}% of connected`}
             icon={Star}
+            help="Customers who showed genuine intent — Hot + Warm + Callback Later combined."
           />
         </MetricCardGrid>
 
         <ChartCard
           title="Engagement Funnel"
-          subtitle="Attempted → Connected → Qualified · unique customers"
+          subtitle="Attempted → Connected → Engaged · unique customers"
           height={240}
         >
           <EngagementFunnelChart {...funnel} />
@@ -110,9 +111,9 @@ export default async function ConnectivityPage() {
               segment: 'Source',
               leads: 'Leads',
               connected: 'Connected',
-              hot: 'Qualified',
+              hot: 'Engaged',
               warm: '',
-              qualRate: 'Qualification rate',
+              qualRate: 'Engagement rate',
               connectRate: 'Connect rate'
             }}
           />
