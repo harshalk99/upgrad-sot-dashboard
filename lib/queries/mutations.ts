@@ -8,6 +8,7 @@
 import { revalidatePath } from 'next/cache';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
 import { requireAdmin, requireSuperAdmin } from '@/lib/auth/requireRole';
+import { VALID_LEAD_STAGES, type LeadStageValue } from '@/lib/lead-stage-constants';
 
 export type TriggerResult =
   | { ok: true; message: string; status: number }
@@ -113,21 +114,10 @@ export async function retryFailedLsPushes(): Promise<TriggerResult> {
 //   4. Write an audit row to dashboard_lead_stage_changes
 //   5. Revalidate the pages that show stage counts
 
-export const VALID_LEAD_STAGES = [
-  'AI Bot Qualified - High Intent',
-  'AI Bot Qualified - Warm',
-  'AI Bot Qualified - Low Interest',
-  'AI Bot Called - Not Interested',
-  'AI Bot Called - Not Eligible',
-  'AI Bot Reached - DNP',
-  'AI Bot Reached - CB Later',
-  'AI Bot Sent - Payment Link',
-  'AI Bot Sent - Brochure'
-] as const;
+// VALID_LEAD_STAGES + LeadStageValue moved to lib/lead-stage-constants.ts
+// (this file is 'use server' — can only export async functions).
 
-export type LeadStageValue = (typeof VALID_LEAD_STAGES)[number];
-
-export type StageUpdateResult =
+type StageUpdateResult =
   | { ok: true; previousStage: string | null; newStage: LeadStageValue }
   | { ok: false; error: string };
 

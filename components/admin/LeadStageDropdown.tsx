@@ -13,11 +13,8 @@ import { useRouter } from 'next/navigation';
 import { Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
-import {
-  updateLeadStageManually,
-  VALID_LEAD_STAGES,
-  type LeadStageValue
-} from '@/lib/queries/mutations';
+import { updateLeadStageManually } from '@/lib/queries/mutations';
+import { VALID_LEAD_STAGES, type LeadStageValue } from '@/lib/lead-stage-constants';
 
 type Props = {
   leadId: string;
