@@ -12,11 +12,12 @@ import {
   getClientDispositionBreakdown,
   getClientFunnel,
   getClientMinutesSummary,
-  getClientSourcePerformance,
   getClientStatePerformance,
   getClientTopObjections
 } from '@/lib/queries/client';
 import { formatDuration, formatPct } from '@/lib/formatters';
+import { decodeDateRange, encodeDateRange, hasDateRange } from '@/lib/url-filters';
+import { format as formatDate } from 'date-fns';
 import { Header } from '@/components/layout/Header';
 import { RefreshButton } from '@/components/layout/RefreshButton';
 import { MetricCard } from '@/components/dashboard/MetricCard';
@@ -25,22 +26,40 @@ import { ChartCard } from '@/components/charts/ChartCard';
 import { FunnelChart } from '@/components/charts/FunnelChart';
 import { StageBreakdownGrid } from '@/components/dashboard/StageBreakdownGrid';
 import { PerformanceTable } from '@/components/dashboard/PerformanceTable';
+import { DateRangeFilter } from '@/components/dashboard/DateRangeFilter';
 
-export default async function DashboardOverviewPage() {
+type PageProps = {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+};
+
+// Defensive — search-param changes should always re-render with fresh data.
+export const dynamic = 'force-dynamic';
+
+export default async function DashboardOverviewPage({ searchParams }: PageProps) {
+  const rawParams = await searchParams;
+  // 'd' prefix = disposition card date range. Other date filters on this page later
+  // can use different prefixes (e.g. 'r' for reports).
+  const dispRange = decodeDateRange(rawParams, 'd');
+
   const user = (await getCurrentUser())!;
   const sb = await createSupabaseServerClient();
 
-  const [funnel, dispositions, minutes, sources, states, avgCall, objections, depth] =
+  // Source performance card removed 2026-05-23 — moved to /dashboard/connectivity
+  // as a filter dimension, where it can slice the entire connectivity story.
+  const [funnel, dispositions, minutes, states, avgCall, objections, depth] =
     await Promise.all([
       getClientFunnel(sb),
-      getClientDispositionBreakdown(sb),
+      getClientDispositionBreakdown(sb, dispRange),
       getClientMinutesSummary(sb),
-      getClientSourcePerformance(sb),
       getClientStatePerformance(sb),
       getClientAvgCallDuration(sb),
       getClientTopObjections(sb, 30, 10),
       getClientConversationDepth(sb)
     ]);
+
+  const dispSubtitle = hasDateRange(dispRange)
+    ? `Filtered: ${dispRange.from ? formatDate(new Date(dispRange.from), 'd MMM') : '…'} – ${dispRange.to ? formatDate(new Date(dispRange.to), 'd MMM yyyy') : '…'} (by last call)`
+    : 'Where every lead ends up. Click a stage to drill in.';
 
   // "Disqualified" card removed 2026-05-24 — the count (total − hot − warm)
   // was misleading because it lumped DNP, Not Yet Called, and pending callbacks
@@ -58,17 +77,7 @@ export default async function DashboardOverviewPage() {
       ? { warn: 75, critical: 90 }
       : undefined;
 
-  // Shape rows for PerformanceTable
-  const sourceRows = sources.map((s) => ({
-    label: s.source,
-    total: s.total_leads,
-    connected: s.connected,
-    hot: s.hot,
-    warm: s.warm,
-    qualPct: Number(s.qualification_rate_pct ?? 0),
-    connectPct: Number(s.connect_rate_pct ?? 0)
-  }));
-
+  // Shape rows for PerformanceTable (State only — Source moved to Connectivity filters).
   const stateRows = states.map((s) => ({
     label: s.state,
     total: s.total_leads,
@@ -125,32 +134,28 @@ export default async function DashboardOverviewPage() {
 
           <ChartCard
             title="Disposition breakdown"
-            subtitle="Where every lead ends up. Click a stage to drill in."
+            subtitle={dispSubtitle}
+            toolbar={<DateRangeFilter currentRange={dispRange} paramPrefix="d" />}
             height={260}
           >
             <div className="h-full overflow-y-auto pr-1">
-              <StageBreakdownGrid dispositions={dispositions} columns={2} compact />
+              <StageBreakdownGrid
+                dispositions={dispositions}
+                columns={2}
+                compact
+                preserveQuery={encodeDateRange(dispRange, 'd').toString() || undefined}
+              />
             </div>
           </ChartCard>
         </div>
 
-        <div className="grid gap-4 lg:grid-cols-2">
-          <ChartCard
-            title="Performance by Source"
-            subtitle="Which channels deliver the highest qualification rate"
-            height="auto"
-          >
-            <PerformanceTable rows={sourceRows} limit={8} showConnectRate />
-          </ChartCard>
-
-          <ChartCard
-            title="Performance by State"
-            subtitle="Geographic distribution and where high-intent leads concentrate"
-            height="auto"
-          >
-            <PerformanceTable rows={stateRows} limit={8} />
-          </ChartCard>
-        </div>
+        <ChartCard
+          title="Performance by State"
+          subtitle="Geographic distribution and where high-intent leads concentrate · slice by source/UTM on the Connectivity page"
+          height="auto"
+        >
+          <PerformanceTable rows={stateRows} limit={8} />
+        </ChartCard>
 
         <div className="grid gap-4 lg:grid-cols-2">
           <ChartCard

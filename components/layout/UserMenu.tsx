@@ -15,6 +15,7 @@ import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
@@ -74,14 +75,18 @@ export function UserMenu({ email, role, displayName }: Props) {
         <ChevronDown className="size-3.5 text-muted-foreground" />
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-56">
-        <DropdownMenuLabel className="font-normal">
-          <div className="flex flex-col">
-            <span className="text-sm">{email}</span>
-            <span className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
-              {role}
-            </span>
-          </div>
-        </DropdownMenuLabel>
+        {/* DropdownMenuLabel renders base-ui's MenuPrimitive.GroupLabel which
+            MUST live inside a MenuPrimitive.Group context — wrap accordingly. */}
+        <DropdownMenuGroup>
+          <DropdownMenuLabel className="font-normal">
+            <div className="flex flex-col">
+              <span className="text-sm">{email}</span>
+              <span className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+                {role}
+              </span>
+            </div>
+          </DropdownMenuLabel>
+        </DropdownMenuGroup>
         <DropdownMenuSeparator />
 
         {role === 'super_admin' && (

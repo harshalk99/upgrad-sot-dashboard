@@ -45,7 +45,7 @@ import type {
   ClientCallSummary,
   ClientLeadRow
 } from '@/lib/queries/client';
-import { formatDateOnly, formatDateTimeIST, formatRelative, ordinal } from '@/lib/formatters';
+import { formatDateOnly, formatDateTimeIST, formatRelative } from '@/lib/formatters';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 import { LeadStageDropdown } from '@/components/admin/LeadStageDropdown';
@@ -283,28 +283,8 @@ export function StageLeadsTable({ leads, stage, userRole }: Props) {
           );
         }
       },
-      {
-        accessorKey: 'connected_on_attempt',
-        header: 'Connected On',
-        size: 100,
-        cell: ({ row }) => {
-          const n = row.original.connected_on_attempt;
-          if (n == null) {
-            return <span className="text-xs text-muted-foreground">Not connected</span>;
-          }
-          const toneClass =
-            n === 1
-              ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-200'
-              : n === 2
-              ? 'bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-200'
-              : 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-200';
-          return (
-            <Badge variant="secondary" className={cn('font-mono text-[10px]', toneClass)}>
-              {ordinal(n)} attempt
-            </Badge>
-          );
-        }
-      },
+      // "Connected On" column removed 2026-05-23 — wasn't useful in the per-stage
+      // drill-in (the connect-attempt number is mostly noise once stage is known).
       {
         accessorKey: 'last_called_at',
         header: 'Last Called',
@@ -396,7 +376,6 @@ export function StageLeadsTable({ leads, stage, userRole }: Props) {
         preferred_campus: l.preferred_campus,
         interested_field: l.interested_field,
         lead_source: l.lead_source,
-        connected_on_attempt: l.connected_on_attempt,
         last_called_at: l.last_called_at,
         total_attempts: l.total_attempts,
         total_connects: l.total_connects,
@@ -584,21 +563,6 @@ function LeadDetailPanel({
               <span className="font-mono">{formatDateTimeIST(lead.callback_datetime)}</span>
             </Detail>
           )}
-          <Detail label="Connect">
-            {lead.connected_on_attempt != null ? (
-              <span className="font-numeric tabular-nums">
-                {ordinal(lead.connected_on_attempt)} attempt
-                <span className="text-muted-foreground">
-                  {' · '}
-                  {lead.total_attempts ?? 0} total
-                </span>
-              </span>
-            ) : (
-              <span className="text-muted-foreground">
-                Not yet connected · {lead.total_attempts ?? 0} attempts tried
-              </span>
-            )}
-          </Detail>
           <Detail label="Status">
             {lead.is_archived ? (
               <Badge variant="outline" className="text-[10px]">
@@ -641,14 +605,12 @@ function LeadDetailPanel({
                     {c.call_start ? formatDateOnly(c.call_start) : c.attempt_date ?? '—'}
                   </span>
                   {c.call_status && (
-                    <Badge variant="outline" className="text-[10px]">
+                    <Badge variant="outline" className="rounded-full text-[10px]">
                       {c.call_status}
                     </Badge>
                   )}
                   {c.enquiry_classification && (
-                    <Badge variant="secondary" className="text-[10px]">
-                      {c.enquiry_classification}
-                    </Badge>
+                    <ClassificationPill value={c.enquiry_classification} />
                   )}
                 </div>
                 <p className="leading-relaxed text-foreground/90 break-words whitespace-pre-wrap">
@@ -662,6 +624,51 @@ function LeadDetailPanel({
         )}
       </div>
     </div>
+  );
+}
+
+// Per-call enquiry_classification rendered as a colored pill.
+// Mirrors the disposition palette so the same emotional cue (HOT=red, WARM=amber)
+// reads consistently across the donut, breakdown cards, and call summaries.
+const CLASSIFICATION_PILL: Record<string, string> = {
+  HOT:            'bg-red-100 text-red-800 ring-red-200 dark:bg-red-950 dark:text-red-200 dark:ring-red-900',
+  WARM:           'bg-amber-100 text-amber-800 ring-amber-200 dark:bg-amber-950 dark:text-amber-200 dark:ring-amber-900',
+  COLD:           'bg-indigo-100 text-indigo-800 ring-indigo-200 dark:bg-indigo-950 dark:text-indigo-200 dark:ring-indigo-900',
+  CB_LATER:       'bg-sky-100 text-sky-800 ring-sky-200 dark:bg-sky-950 dark:text-sky-200 dark:ring-sky-900',
+  NOT_INTERESTED: 'bg-pink-100 text-pink-800 ring-pink-200 dark:bg-pink-950 dark:text-pink-200 dark:ring-pink-900',
+  NOT_ELIGIBLE:   'bg-purple-100 text-purple-800 ring-purple-200 dark:bg-purple-950 dark:text-purple-200 dark:ring-purple-900',
+  PAYMENT_LINK:   'bg-emerald-100 text-emerald-800 ring-emerald-200 dark:bg-emerald-950 dark:text-emerald-200 dark:ring-emerald-900',
+  BROCHURE:       'bg-teal-100 text-teal-800 ring-teal-200 dark:bg-teal-950 dark:text-teal-200 dark:ring-teal-900',
+  DNP:            'bg-slate-100 text-slate-700 ring-slate-200 dark:bg-slate-800 dark:text-slate-200 dark:ring-slate-700',
+  INVALID:        'bg-stone-100 text-stone-700 ring-stone-200 dark:bg-stone-800 dark:text-stone-200 dark:ring-stone-700'
+};
+
+const CLASSIFICATION_LABEL: Record<string, string> = {
+  HOT: 'Hot',
+  WARM: 'Warm',
+  COLD: 'Cold',
+  CB_LATER: 'Callback Later',
+  NOT_INTERESTED: 'Not Interested',
+  NOT_ELIGIBLE: 'Not Eligible',
+  PAYMENT_LINK: 'Payment Link',
+  BROCHURE: 'Brochure',
+  DNP: 'Did Not Pick',
+  INVALID: 'Invalid'
+};
+
+function ClassificationPill({ value }: { value: string }) {
+  const cls = CLASSIFICATION_PILL[value] ?? 'bg-muted text-muted-foreground ring-border';
+  const label = CLASSIFICATION_LABEL[value] ?? value;
+  return (
+    <span
+      className={cn(
+        'inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium ring-1 ring-inset',
+        cls
+      )}
+      title={value}
+    >
+      {label}
+    </span>
   );
 }
 

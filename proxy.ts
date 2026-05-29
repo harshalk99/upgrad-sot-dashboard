@@ -76,6 +76,9 @@ export async function proxy(request: NextRequest) {
 }
 
 export const config = {
-  // Run on everything EXCEPT static assets & favicon.
-  matcher: ['/((?!_next/static|_next/image|favicon.ico).*)']
+  // Run on everything EXCEPT static assets, favicon, and files in /public/
+  // with common asset extensions. Without the extension exclusion, asset
+  // requests like /predixion-logo-black.png get intercepted by the auth proxy
+  // and redirected to /login when the user isn't signed in.
+  matcher: ['/((?!_next/static|_next/image|favicon.ico|.*\\.(?:png|jpg|jpeg|gif|svg|ico|webp|woff|woff2|ttf|otf|css|js|map)$).*)']
 };

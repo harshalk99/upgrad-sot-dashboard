@@ -6,7 +6,7 @@ import { cn } from '@/lib/utils';
 
 type Props = {
   title: string;
-  subtitle?: string;
+  subtitle?: ReactNode;
   toolbar?: ReactNode;
   loading?: boolean;
   empty?: boolean;

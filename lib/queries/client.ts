@@ -185,21 +185,30 @@ export type ClientCallSummary = {
 /** Leads in a given stage, sorted by most-recent attempt.
  *
  *  NOTE: Supabase REST API caps a single `select` at `MAX_ROWS` (default 1,000)
- *  regardless of `.limit(N)`. To return all leads in large stages like
- *  "AI Bot Reached - DNP" (~2,400 leads), we paginate via `.range()` in pages
- *  of 1,000 until we get a partial page back. Safety stop at 20k.
+ *  regardless of `.limit(N)`. Pages via `.range()` until we hit a partial
+ *  result. Safety stop at 20k rows.
+ *
+ *  Optional `range` filters by `last_called_at` (date-only). Leads with NULL
+ *  `last_called_at` are excluded whenever any bound is provided.
  */
-export async function getClientLeadsByStage(sb: SB, stage: string): Promise<ClientLeadRow[]> {
+export async function getClientLeadsByStage(
+  sb: SB,
+  stage: string,
+  range?: DispositionDateRange
+): Promise<ClientLeadRow[]> {
   const pageSize = 1000;
   const out: ClientLeadRow[] = [];
   for (let from = 0; from < 20_000; from += pageSize) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { data, error } = await (sb as any)
+    let q = (sb as any)
       .from('v_client_leads_by_stage')
       .select('*')
-      .eq('lead_stage', stage)
-      .order('last_called_at', { ascending: false, nullsFirst: false })
-      .range(from, from + pageSize - 1);
+      .eq('lead_stage', stage);
+    if (range?.from) q = q.gte('last_called_at', `${range.from}T00:00:00`);
+    if (range?.to)   q = q.lte('last_called_at', `${range.to}T23:59:59.999`);
+    q = q.order('last_called_at', { ascending: false, nullsFirst: false })
+         .range(from, from + pageSize - 1);
+    const { data, error } = await q;
     if (error) break;
     const rows = (data ?? []) as ClientLeadRow[];
     out.push(...rows);
@@ -219,24 +228,31 @@ export async function getClientCallSummariesForLead(sb: SB, lsProspectId: string
   return (data ?? []) as ClientCallSummary[];
 }
 
-/** Per-stage richer breakdown for the Dispositions page: counts + sample lead.
- *  EXCLUDES "Not Yet Called" — those leads have no disposition outcome yet
- *  (per client request 2026-05-23).
+/** Per-stage breakdown for the Disposition card on /dashboard Overview.
+ *
+ *  Excludes "Not Yet Called" (no disposition outcome yet).
+ *  Accepts an optional date range filtering by `last_called_at` — when the AI
+ *  actually assigned the stage. When unset, returns all-time numbers identical
+ *  (modulo the Not-Yet-Called exclusion) to the legacy v_client_dispositions
+ *  view.
+ *
+ *  Backed by the `client_dispositions_in_range` RPC (SECURITY DEFINER).
  */
-/** All disposition stages from lead_stage on active + archived leads.
- *  Every lead is accounted for — total should match funnel.total_leads exactly.
- */
-export async function getClientDispositionBreakdown(sb: SB) {
-  const { data: rows } = await sb
-    .from('v_client_dispositions')
-    .select('lead_stage, lead_count')
-    .order('lead_count', { ascending: false });
-  return (rows ?? [])
-    .filter((r) => r.lead_stage != null)
-    .map((r) => ({
-      stage: r.lead_stage as string,
-      count: r.lead_count ?? 0
-    }));
+export type DispositionDateRange = { from?: string; to?: string }; // YYYY-MM-DD
+
+export async function getClientDispositionBreakdown(
+  sb: SB,
+  range?: DispositionDateRange
+) {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data } = await (sb as any).rpc('client_dispositions_in_range', {
+    p_from: range?.from ?? null,
+    p_to: range?.to ?? null
+  });
+  const rows = (data ?? []) as { lead_stage: string | null; lead_count: number }[];
+  return rows
+    .filter((r) => r.lead_stage && r.lead_stage !== 'Not Yet Called')
+    .map((r) => ({ stage: r.lead_stage as string, count: r.lead_count ?? 0 }));
 }
 
 // ─── Business performance views (added post-Phase-3 by client request) ─────
@@ -263,6 +279,9 @@ export type StatePerformanceRow = {
   qualification_rate_pct: number;
 };
 
+/** @deprecated Source performance card was removed from /dashboard Overview when
+ *  the Connectivity page gained a Lead Source filter. Keep the helper for
+ *  potential re-introduction. */
 export async function getClientSourcePerformance(sb: SB) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const { data } = await (sb as any)
@@ -298,21 +317,120 @@ export type EngagementBySourceRow = {
   engagement_rate_pct: number;
 };
 
-export async function getClientEngagementFunnel(sb: SB): Promise<EngagementFunnel> {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { data } = await (sb as any)
-    .from('v_client_engagement_funnel')
-    .select('*')
-    .maybeSingle();
-  return (data ?? { attempted: 0, connected: 0, qualified: 0 }) as EngagementFunnel;
+// ─── Connectivity filters (11 dimensions) ──────────────────────────────────
+// All 3 connectivity queries below accept the same ConnectivityFilters shape.
+// Passes through to the *_filtered RPC functions added in dashboard_setup_14/15.
+
+export type ConnectivityFilters = {
+  lead_source?: string[];
+  data_acquisition_channel?: string[];
+  data_source_type?: string[];
+  data_source_name?: string[];
+  data_source_batch?: string[];
+  utm_source?: string[];
+  original_utm_source?: string[];
+  original_utm_campaign?: string[];
+  original_utm_medium?: string[];
+  original_utm_content?: string[];
+  original_utm_term?: string[];
+};
+
+export type ConnectivityFilterOptions = {
+  [K in keyof Required<ConnectivityFilters>]: string[];
+};
+
+/** Convert ConnectivityFilters to named RPC args; undefined / empty becomes null. */
+function mapFiltersToRpcArgs(filters?: ConnectivityFilters) {
+  const norm = (v?: string[]) => (v && v.length > 0 ? v : null);
+  return {
+    p_lead_source:              norm(filters?.lead_source),
+    p_data_acquisition_channel: norm(filters?.data_acquisition_channel),
+    p_data_source_type:         norm(filters?.data_source_type),
+    p_data_source_name:         norm(filters?.data_source_name),
+    p_data_source_batch:        norm(filters?.data_source_batch),
+    p_utm_source:               norm(filters?.utm_source),
+    p_original_utm_source:      norm(filters?.original_utm_source),
+    p_original_utm_campaign:    norm(filters?.original_utm_campaign),
+    p_original_utm_medium:      norm(filters?.original_utm_medium),
+    p_original_utm_content:     norm(filters?.original_utm_content),
+    p_original_utm_term:        norm(filters?.original_utm_term)
+  };
 }
 
-export async function getClientEngagementBySource(sb: SB): Promise<EngagementBySourceRow[]> {
+export async function getClientEngagementFunnel(
+  sb: SB,
+  filters?: ConnectivityFilters
+): Promise<EngagementFunnel> {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { data } = await (sb as any)
-    .from('v_client_engagement_by_source')
-    .select('*');
+  const { data } = await (sb as any).rpc(
+    'client_engagement_funnel_filtered',
+    mapFiltersToRpcArgs(filters)
+  );
+  const row = Array.isArray(data) ? data[0] : data;
+  return (row ?? { attempted: 0, connected: 0, qualified: 0 }) as EngagementFunnel;
+}
+
+export async function getClientEngagementBySource(
+  sb: SB,
+  filters?: ConnectivityFilters
+): Promise<EngagementBySourceRow[]> {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data } = await (sb as any).rpc(
+    'client_engagement_by_source_filtered',
+    mapFiltersToRpcArgs(filters)
+  );
   return (data ?? []) as EngagementBySourceRow[];
+}
+
+export async function getClientConnectivityFilterOptions(
+  sb: SB
+): Promise<ConnectivityFilterOptions> {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data } = await (sb as any).rpc('client_connectivity_filter_options');
+  const base: ConnectivityFilterOptions = {
+    lead_source: [],
+    data_acquisition_channel: [],
+    data_source_type: [],
+    data_source_name: [],
+    data_source_batch: [],
+    utm_source: [],
+    original_utm_source: [],
+    original_utm_campaign: [],
+    original_utm_medium: [],
+    original_utm_content: [],
+    original_utm_term: []
+  };
+  if (!data || typeof data !== 'object') return base;
+  return { ...base, ...(data as ConnectivityFilterOptions) };
+}
+
+// ─── Per-day connectivity trend ────────────────────────────────────────────
+// Per-CALL counts bucketed by IST day. KPI cards above the chart show unique
+// customer counts; this view counts every call attempt for trend visibility.
+// "Connected" excludes DNP/INVALID classifications (call did not produce a
+// real conversation). "Engaged" = HOT/WARM/CB_LATER per-call classification.
+
+export type ConnectivityDailyRow = {
+  day: string;
+  attempted: number;
+  connected: number;
+  engaged: number;
+  connect_pct: number | null;
+  engage_pct: number | null;
+};
+
+export async function getClientConnectivityDaily(
+  sb: SB,
+  filters?: ConnectivityFilters
+): Promise<ConnectivityDailyRow[]> {
+  // Calls the *_filtered RPC. When filters is undefined/empty, returns the same
+  // 30-day daily breakdown as the legacy v_client_connectivity_daily view.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data } = await (sb as any).rpc(
+    'client_connectivity_daily_filtered',
+    mapFiltersToRpcArgs(filters)
+  );
+  return (data ?? []) as ConnectivityDailyRow[];
 }
 
 // Removed: getClientConnectivityTotals.

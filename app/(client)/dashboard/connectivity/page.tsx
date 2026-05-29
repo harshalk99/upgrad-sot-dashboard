@@ -3,28 +3,57 @@
 // "Connected" = AI classified the call (real conversation happened).
 // "Qualified" = HOT + WARM + CB Later stages.
 // No attempt counts, no call durations exposed to client.
+//
+// 2026-05-23: Added URL-syncing filter bar (11 lead/UTM dimensions). The filter
+// state lives in searchParams; all 3 data fetches accept the same ConnectivityFilters.
 import { Users, PhoneCall, Star } from 'lucide-react';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
 import { getCurrentUser } from '@/lib/auth/getUser';
 import {
+  getClientConnectivityDaily,
+  getClientConnectivityFilterOptions,
   getClientEngagementBySource,
-  getClientEngagementFunnel
+  getClientEngagementFunnel,
+  type ConnectivityFilters
 } from '@/lib/queries/client';
+import {
+  CONNECTIVITY_SHORT_TO_FULL,
+  decodeFiltersFromSearchParams
+} from '@/lib/url-filters';
 import { Header } from '@/components/layout/Header';
 import { RefreshButton } from '@/components/layout/RefreshButton';
 import { MetricCard } from '@/components/dashboard/MetricCard';
 import { MetricCardGrid } from '@/components/dashboard/MetricCardGrid';
+import { ConnectivityFilterBar } from '@/components/dashboard/ConnectivityFilterBar';
 import { ChartCard } from '@/components/charts/ChartCard';
+import { ConnectivityTrendLine } from '@/components/charts/ConnectivityTrendLine';
 import { EngagementFunnelChart } from '@/components/charts/EngagementFunnelChart';
 import { PerformanceTable } from '@/components/dashboard/PerformanceTable';
 
-export default async function ConnectivityPage() {
+type PageProps = {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+};
+
+// Opt out of route caching so search-param changes always re-render with fresh data.
+// (Defensive — Next 16 should already treat searchParams as dynamic input.)
+export const dynamic = 'force-dynamic';
+
+export default async function ConnectivityPage({ searchParams }: PageProps) {
+  // Next 16: searchParams is async.
+  const rawParams = await searchParams;
+  const filters = decodeFiltersFromSearchParams(
+    rawParams,
+    CONNECTIVITY_SHORT_TO_FULL
+  ) as ConnectivityFilters;
+
   const user = (await getCurrentUser())!;
   const sb = await createSupabaseServerClient();
 
-  const [funnel, sources] = await Promise.all([
-    getClientEngagementFunnel(sb),
-    getClientEngagementBySource(sb)
+  const [funnel, sources, daily, options] = await Promise.all([
+    getClientEngagementFunnel(sb, filters),
+    getClientEngagementBySource(sb, filters),
+    getClientConnectivityDaily(sb, filters),
+    getClientConnectivityFilterOptions(sb)
   ]);
 
   const connectRate =
@@ -60,6 +89,8 @@ export default async function ConnectivityPage() {
         toolbar={<RefreshButton />}
       />
       <div className="space-y-6 p-6">
+        <ConnectivityFilterBar options={options} currentFilters={filters} />
+
         <MetricCardGrid cols={3}>
           <MetricCard
             title="Customers Attempted"
@@ -88,6 +119,21 @@ export default async function ConnectivityPage() {
           height={240}
         >
           <EngagementFunnelChart {...funnel} />
+        </ChartCard>
+
+        <ChartCard
+          title="Daily Connectivity Trend"
+          subtitle={
+            <>
+              Last 30 days · attempted, connected, engaged calls + daily connect %
+              <span className="ml-1 text-muted-foreground/70">
+                · counts every call attempt (a customer dialed twice appears twice)
+              </span>
+            </>
+          }
+          height={280}
+        >
+          <ConnectivityTrendLine data={daily} />
         </ChartCard>
 
         <ChartCard

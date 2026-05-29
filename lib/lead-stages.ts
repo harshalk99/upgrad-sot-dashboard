@@ -58,6 +58,12 @@ const META: Record<string, StageMeta> = {
     color: '#a855f7', // purple-500
     tone: 'caution'
   },
+  'AI Bot Called - Wrong Number': {
+    label: 'Wrong Number',
+    description: 'Number reached someone other than the lead.',
+    color: '#fb923c', // orange-400
+    tone: 'caution'
+  },
   'AI Bot Sent - Payment Link': {
     label: 'AI Bot Sent - Payment Link',
     description: 'Payment link delivered after conversation.',

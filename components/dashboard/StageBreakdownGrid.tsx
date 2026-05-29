@@ -14,6 +14,9 @@ type Props = {
   compact?: boolean;
   /** Grid columns at lg breakpoint. */
   columns?: 1 | 2 | 3 | 4;
+  /** Optional URL query string (without the `?`) to forward to drill-in links.
+   *  E.g. "dfrom=2026-05-21&dto=2026-05-27" preserves the date filter on click. */
+  preserveQuery?: string;
 };
 
 const COLS: Record<number, string> = {
@@ -23,8 +26,9 @@ const COLS: Record<number, string> = {
   4: 'lg:grid-cols-4'
 };
 
-export function StageBreakdownGrid({ dispositions, compact, columns = 3 }: Props) {
+export function StageBreakdownGrid({ dispositions, compact, columns = 3, preserveQuery }: Props) {
   const total = dispositions.reduce((s, d) => s + d.count, 0);
+  const qs = preserveQuery ? `?${preserveQuery}` : '';
 
   return (
     <div className={cn('grid grid-cols-1 gap-2 sm:grid-cols-2', COLS[columns])}>
@@ -35,7 +39,7 @@ export function StageBreakdownGrid({ dispositions, compact, columns = 3 }: Props
         return (
           <Link
             key={stage}
-            href={`/dashboard/dispositions/${slug}`}
+            href={`/dashboard/dispositions/${slug}${qs}`}
             className={cn(
               'group flex items-center gap-3 rounded-md border border-border/60 bg-card transition-colors hover:border-border hover:bg-muted/40',
               compact ? 'px-3 py-2' : 'px-4 py-3'
