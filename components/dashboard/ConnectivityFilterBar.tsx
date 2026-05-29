@@ -9,7 +9,7 @@
 //   - Filters are "draft" until the user clicks Apply (URL push).
 //   - Reset clears both the draft and the applied URL filters.
 
-import { useEffect, useMemo, useState, useTransition } from 'react';
+import { useMemo, useState, useTransition } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import { Check, ChevronsUpDown, Filter, RotateCcw, Send, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -98,11 +98,16 @@ export function ConnectivityFilterBar({ options, currentFilters }: Props) {
   const [draft, setDraft] = useState<ConnectivityFilters>(currentFilters);
 
   // If the URL state changes externally (e.g. user navigates), sync draft.
+  // React 19 / React Compiler-friendly pattern: setState during render with a
+  // prev-value sentinel. Avoids `useEffect` (which would trigger the
+  // react-hooks/set-state-in-effect lint error and cascade renders).
+  // Ref: https://react.dev/reference/react/useState#storing-information-from-previous-renders
   const appliedSig = sig(currentFilters);
-  useEffect(() => {
+  const [prevAppliedSig, setPrevAppliedSig] = useState(appliedSig);
+  if (prevAppliedSig !== appliedSig) {
+    setPrevAppliedSig(appliedSig);
     setDraft(currentFilters);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [appliedSig]);
+  }
 
   const draftSig = sig(draft);
   const isDirty = draftSig !== appliedSig;

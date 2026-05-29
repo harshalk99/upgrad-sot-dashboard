@@ -8,7 +8,7 @@
 // lets multiple date filters coexist on a page later (e.g. 'd' for dispositions,
 // 'r' for reports).
 
-import { useEffect, useMemo, useState, useTransition } from 'react';
+import { useMemo, useState, useTransition } from 'react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { CalendarDays, RotateCcw, Send } from 'lucide-react';
 import {
@@ -104,12 +104,16 @@ export function DateRangeFilter({ currentRange, paramPrefix = 'd', label = 'Date
   const [preset, setPreset] = useState<PresetKey>(rangeToPreset(currentRange));
 
   // Sync local draft when URL changes externally.
+  // React 19 / React Compiler-friendly pattern: setState during render with a
+  // prev-value sentinel. Avoids `useEffect` + the react-hooks/set-state-in-effect lint error.
+  // Ref: https://react.dev/reference/react/useState#storing-information-from-previous-renders
   const appliedSig = `${currentRange.from ?? ''}|${currentRange.to ?? ''}`;
-  useEffect(() => {
+  const [prevAppliedSig, setPrevAppliedSig] = useState(appliedSig);
+  if (prevAppliedSig !== appliedSig) {
+    setPrevAppliedSig(appliedSig);
     setDraft(currentRange);
     setPreset(rangeToPreset(currentRange));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [appliedSig]);
+  }
 
   const draftSig = `${draft.from ?? ''}|${draft.to ?? ''}`;
   const isDirty = draftSig !== appliedSig;
