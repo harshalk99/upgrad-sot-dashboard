@@ -204,8 +204,12 @@ export async function getClientLeadsByStage(
       .from('v_client_leads_by_stage')
       .select('*')
       .eq('lead_stage', stage);
-    if (range?.from) q = q.gte('last_called_at', `${range.from}T00:00:00`);
-    if (range?.to)   q = q.lte('last_called_at', `${range.to}T23:59:59.999`);
+    // IST-anchored day bounds (Asia/Kolkata = UTC+05:30) so a call at 02:00 IST
+    // on the "to" day is included in that day's bucket. Without the +05:30 the
+    // bound is interpreted as UTC and late-evening-IST calls get assigned to
+    // the wrong day in the filtered list.
+    if (range?.from) q = q.gte('last_called_at', `${range.from}T00:00:00+05:30`);
+    if (range?.to)   q = q.lte('last_called_at', `${range.to}T23:59:59.999+05:30`);
     q = q.order('last_called_at', { ascending: false, nullsFirst: false })
          .range(from, from + pageSize - 1);
     const { data, error } = await q;
@@ -231,12 +235,17 @@ export async function getClientCallSummariesForLead(sb: SB, lsProspectId: string
 /** Per-stage breakdown for the Disposition card on /dashboard Overview.
  *
  *  Excludes "Not Yet Called" (no disposition outcome yet).
- *  Accepts an optional date range filtering by `last_called_at` — when the AI
- *  actually assigned the stage. When unset, returns all-time numbers identical
- *  (modulo the Not-Yet-Called exclusion) to the legacy v_client_dispositions
- *  view.
+ *  Accepts an optional date range filtering by `last_called_at` IN IST — when
+ *  the AI actually assigned the stage, bucketed by Asia/Kolkata day boundaries.
  *
- *  Backed by the `client_dispositions_in_range` RPC (SECURITY DEFINER).
+ *  Backed by `get_dispositions_by_ist_date(p_from, p_to)` (SECURITY DEFINER,
+ *  reads from v_lead_dispositions_ist which has a pre-computed
+ *  last_called_date_ist column). This replaces the previous UTC-bucketed
+ *  client_dispositions_in_range RPC — fixes a bug where late-evening IST calls
+ *  bucketed into the wrong day (~1% of leads).
+ *
+ *  When no range is supplied, calls with NULL bounds — the function returns
+ *  cumulative counts across all dispositions.
  */
 export type DispositionDateRange = { from?: string; to?: string }; // YYYY-MM-DD
 
@@ -245,7 +254,7 @@ export async function getClientDispositionBreakdown(
   range?: DispositionDateRange
 ) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { data } = await (sb as any).rpc('client_dispositions_in_range', {
+  const { data } = await (sb as any).rpc('get_dispositions_by_ist_date', {
     p_from: range?.from ?? null,
     p_to: range?.to ?? null
   });
