@@ -53,7 +53,7 @@ export default async function DashboardOverviewPage({ searchParams }: PageProps)
       getClientMinutesSummary(sb),
       getClientStatePerformance(sb),
       getClientAvgCallDuration(sb),
-      getClientTopObjections(sb, 30, 10),
+      getClientTopObjections(sb, 10),
       getClientConversationDepth(sb)
     ]);
 

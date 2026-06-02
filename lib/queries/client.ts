@@ -69,66 +69,43 @@ export async function getClientMinutesSummary(sb: SB) {
 /** Top objections raised in conversations over the last N days. Aggregates the
  *  comma-separated `objections_raised` text column. Filters out "none"/"n/a".
  *  Excludes flagged calls — those are post-cleanup bad data we don't trust. */
-export async function getClientTopObjections(sb: SB, lastNDays = 30, limit = 10) {
-  const since = new Date(Date.now() - lastNDays * 24 * 60 * 60 * 1000).toISOString();
+export async function getClientTopObjections(sb: SB, limit = 10) {
+  // The existing top_objections(p_limit) RPC (per SPEC §5.4, SECURITY DEFINER)
+  // aggregates over all unflagged calls — clients can't read upgrad_call_logs
+  // directly due to RLS. The RPC is all-time; if a date window is needed in
+  // future, extend the RPC and add the param here.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { data } = await (sb as any)
-    .from('upgrad_call_logs')
-    .select('objections_raised')
-    .not('objections_raised', 'is', null)
-    .neq('objections_raised', '')
-    .gte('call_start', since)
-    .not('call_flagged', 'is', true);
-  const counts = new Map<string, number>();
-  for (const row of (data ?? []) as { objections_raised: string | null }[]) {
-    if (!row.objections_raised) continue;
-    for (const raw of row.objections_raised.split(/[,;]/)) {
-      const k = raw.trim();
-      if (!k || k.toLowerCase() === 'none' || k.toLowerCase() === 'n/a') continue;
-      counts.set(k, (counts.get(k) ?? 0) + 1);
-    }
-  }
-  return Array.from(counts.entries())
-    .map(([objection, count]) => ({ objection, count }))
-    .sort((a, b) => b.count - a.count)
-    .slice(0, limit);
+  const { data } = await (sb as any).rpc('top_objections', { p_limit: limit });
+  const rows = (data ?? []) as { objection: string; frequency: number }[];
+  return rows.map((r) => ({ objection: r.objection, count: Number(r.frequency ?? 0) }));
 }
 
 /** Distribution of conversation_depth labels (e.g. "shallow", "deep") across all
- *  classified calls. Returns rows ordered by count desc. Excludes flagged calls. */
+ *  classified calls. Returns rows ordered by count desc. Excludes flagged calls.
+ *  Backed by client_conversation_depth RPC (SECURITY DEFINER) so client sessions
+ *  can aggregate without needing direct read access to upgrad_call_logs. */
 export async function getClientConversationDepth(sb: SB) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { data } = await (sb as any)
-    .from('upgrad_call_logs')
-    .select('conversation_depth')
-    .not('conversation_depth', 'is', null)
-    .not('call_flagged', 'is', true);
-  const counts = new Map<string, number>();
-  for (const r of (data ?? []) as { conversation_depth: string | null }[]) {
-    if (!r.conversation_depth) continue;
-    counts.set(r.conversation_depth, (counts.get(r.conversation_depth) ?? 0) + 1);
-  }
-  return Array.from(counts.entries())
-    .map(([depth, count]) => ({ depth, count }))
-    .sort((a, b) => b.count - a.count);
+  const { data } = await (sb as any).rpc('client_conversation_depth');
+  const rows = (data ?? []) as { depth: string; lead_count: number }[];
+  return rows.map((r) => ({ depth: r.depth, count: Number(r.lead_count ?? 0) }));
 }
 
 /** Average call duration across connected calls (duration > 0). Returned in
  *  seconds. Per UGSOT request 2026-05-23 (overview-only): show on the Overview
- *  metric strip — replaces the Callbacks Pending card. Excludes flagged calls
- *  (post-cleanup bad data — see migration exclude_flagged_calls_from_admin_aggregates). */
+ *  metric strip — replaces the Callbacks Pending card. Excludes flagged calls.
+ *
+ *  Backed by client_avg_call_duration RPC (SECURITY DEFINER). Previously
+ *  queried upgrad_call_logs directly, which returns 0 rows for client sessions
+ *  due to RLS — net effect was a permanent "0s" KPI for client users. */
 export async function getClientAvgCallDuration(sb: SB) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { data } = await (sb as any)
-    .from('upgrad_call_logs')
-    .select('duration_seconds')
-    .gt('duration_seconds', 0)
-    .not('call_flagged', 'is', true);
-  const rows = (data ?? []) as { duration_seconds: number }[];
-  const n = rows.length;
-  if (n === 0) return { avg_seconds: 0, connected_calls: 0 };
-  const total = rows.reduce((s, r) => s + (r.duration_seconds ?? 0), 0);
-  return { avg_seconds: Math.round(total / n), connected_calls: n };
+  const { data } = await (sb as any).rpc('client_avg_call_duration');
+  const row = Array.isArray(data) ? data[0] : data;
+  return {
+    avg_seconds: Number(row?.avg_seconds ?? 0),
+    connected_calls: Number(row?.connected_calls ?? 0)
+  };
 }
 
 // ─── Disposition drill-down ─────────────────────────────────────────────────
@@ -253,8 +230,14 @@ export async function getClientDispositionBreakdown(
   sb: SB,
   range?: DispositionDateRange
 ) {
+  // When the user has set any bound, use the IST-bucketed RPC (correct day
+  // boundaries for Asia/Kolkata). When no bound is set we want cumulative
+  // all-time counts — the IST RPC returns 0 rows for NULL params, so fall
+  // back to client_dispositions_in_range which treats NULL as "no filter".
+  const hasBound = Boolean(range?.from || range?.to);
+  const rpcName = hasBound ? 'get_dispositions_by_ist_date' : 'client_dispositions_in_range';
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { data } = await (sb as any).rpc('get_dispositions_by_ist_date', {
+  const { data } = await (sb as any).rpc(rpcName, {
     p_from: range?.from ?? null,
     p_to: range?.to ?? null
   });
