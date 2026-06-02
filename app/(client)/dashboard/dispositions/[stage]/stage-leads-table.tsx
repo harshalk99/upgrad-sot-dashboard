@@ -609,9 +609,8 @@ function LeadDetailPanel({
                       {c.call_status}
                     </Badge>
                   )}
-                  {c.enquiry_classification && (
-                    <ClassificationPill value={c.enquiry_classification} />
-                  )}
+                  {/* classification pill removed 2026-06-01 — redundant when the
+                     call summary text already conveys the outcome. */}
                 </div>
                 <p className="leading-relaxed text-foreground/90 break-words whitespace-pre-wrap">
                   {c.transcript_summary || (
@@ -627,50 +626,8 @@ function LeadDetailPanel({
   );
 }
 
-// Per-call enquiry_classification rendered as a colored pill.
-// Mirrors the disposition palette so the same emotional cue (HOT=red, WARM=amber)
-// reads consistently across the donut, breakdown cards, and call summaries.
-const CLASSIFICATION_PILL: Record<string, string> = {
-  HOT:            'bg-red-100 text-red-800 ring-red-200 dark:bg-red-950 dark:text-red-200 dark:ring-red-900',
-  WARM:           'bg-amber-100 text-amber-800 ring-amber-200 dark:bg-amber-950 dark:text-amber-200 dark:ring-amber-900',
-  COLD:           'bg-indigo-100 text-indigo-800 ring-indigo-200 dark:bg-indigo-950 dark:text-indigo-200 dark:ring-indigo-900',
-  CB_LATER:       'bg-sky-100 text-sky-800 ring-sky-200 dark:bg-sky-950 dark:text-sky-200 dark:ring-sky-900',
-  NOT_INTERESTED: 'bg-pink-100 text-pink-800 ring-pink-200 dark:bg-pink-950 dark:text-pink-200 dark:ring-pink-900',
-  NOT_ELIGIBLE:   'bg-purple-100 text-purple-800 ring-purple-200 dark:bg-purple-950 dark:text-purple-200 dark:ring-purple-900',
-  PAYMENT_LINK:   'bg-emerald-100 text-emerald-800 ring-emerald-200 dark:bg-emerald-950 dark:text-emerald-200 dark:ring-emerald-900',
-  BROCHURE:       'bg-teal-100 text-teal-800 ring-teal-200 dark:bg-teal-950 dark:text-teal-200 dark:ring-teal-900',
-  DNP:            'bg-slate-100 text-slate-700 ring-slate-200 dark:bg-slate-800 dark:text-slate-200 dark:ring-slate-700',
-  INVALID:        'bg-stone-100 text-stone-700 ring-stone-200 dark:bg-stone-800 dark:text-stone-200 dark:ring-stone-700'
-};
-
-const CLASSIFICATION_LABEL: Record<string, string> = {
-  HOT: 'Hot',
-  WARM: 'Warm',
-  COLD: 'Cold',
-  CB_LATER: 'Callback Later',
-  NOT_INTERESTED: 'Not Interested',
-  NOT_ELIGIBLE: 'Not Eligible',
-  PAYMENT_LINK: 'Payment Link',
-  BROCHURE: 'Brochure',
-  DNP: 'Did Not Pick',
-  INVALID: 'Invalid'
-};
-
-function ClassificationPill({ value }: { value: string }) {
-  const cls = CLASSIFICATION_PILL[value] ?? 'bg-muted text-muted-foreground ring-border';
-  const label = CLASSIFICATION_LABEL[value] ?? value;
-  return (
-    <span
-      className={cn(
-        'inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium ring-1 ring-inset',
-        cls
-      )}
-      title={value}
-    >
-      {label}
-    </span>
-  );
-}
+// ClassificationPill removed 2026-06-01 — the summary text already conveys
+// the outcome (Warm / Did Not Pick / etc.) and the redundant chip added noise.
 
 function Detail({
   icon,
