@@ -61,9 +61,30 @@ export async function getClientConnectivity(sb: SB) {
   return data ?? [];
 }
 
-export async function getClientMinutesSummary(sb: SB) {
-  const { data } = await sb.from('v_client_minutes_summary').select('*').maybeSingle();
-  return data;
+/** Voice minutes used vs allocated for the current UGSOT billing cycle.
+ *  Cycle runs from the 18th of one month to the 17th of the next (inclusive).
+ *  Backed by v_client_minutes_summary (recreated in migration 0018 — see
+ *  supabase/migrations/0018_minutes_billing_cycle.sql). Shape:
+ *    { campaign_id, billing_cycle_start, billing_cycle_end,
+ *      allocated_minutes, minutes_used, minutes_remaining, utilization_pct }
+ */
+export type ClientMinutesSummary = {
+  campaign_id: string | null;
+  billing_cycle_start: string | null; // YYYY-MM-DD
+  billing_cycle_end: string | null;   // YYYY-MM-DD (exclusive)
+  allocated_minutes: number | null;
+  minutes_used: number;
+  minutes_remaining: number;
+  utilization_pct: number;
+};
+
+export async function getClientMinutesSummary(sb: SB): Promise<ClientMinutesSummary | null> {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data } = await (sb as any)
+    .from('v_client_minutes_summary')
+    .select('*')
+    .maybeSingle();
+  return (data ?? null) as ClientMinutesSummary | null;
 }
 
 /** Top objections raised in conversations over the last N days. Aggregates the

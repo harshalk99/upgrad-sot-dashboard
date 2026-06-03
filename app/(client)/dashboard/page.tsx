@@ -114,12 +114,17 @@ export default async function DashboardOverviewPage({ searchParams }: PageProps)
             subtitle={`${(funnel?.connected ?? 0).toLocaleString('en-IN')} / ${(funnel?.attempted ?? 0).toLocaleString('en-IN')}`}
           />
           <MetricCard
-            title="Voice Minutes (Month)"
+            title="Voice Minutes (Cycle)"
             value={`${minutes?.minutes_used ?? 0}`}
-            subtitle={`${formatPct(minutes?.utilization_pct)} of ${minutes?.allocated_minutes ?? 0}`}
+            subtitle={
+              minutes?.billing_cycle_start && minutes?.billing_cycle_end
+                ? `${formatPct(minutes.utilization_pct)} of ${minutes.allocated_minutes ?? 0} · ${formatDate(new Date(minutes.billing_cycle_start), 'd MMM')} – ${formatDate(new Date(new Date(minutes.billing_cycle_end).getTime() - 86_400_000), 'd MMM')}`
+                : `${formatPct(minutes?.utilization_pct)} of ${minutes?.allocated_minutes ?? 0}`
+            }
             threshold={minutesUtilSeverity}
             invert
             icon={Clock}
+            help="Billing cycle runs the 18th of each month to the 17th of the next. The counter resets every 18th. Allocation per WO-DOT-UGSOT-053."
           />
         </MetricCardGrid>
 
