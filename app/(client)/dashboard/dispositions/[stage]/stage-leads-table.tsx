@@ -16,6 +16,7 @@ import {
   Link as LinkIcon,
   MapPin,
   Phone,
+  Play,
   Search,
   Tag
 } from 'lucide-react';
@@ -611,6 +612,9 @@ function LeadDetailPanel({
                   )}
                   {/* classification pill removed 2026-06-01 — redundant when the
                      call summary text already conveys the outcome. */}
+                  <div className="ml-auto">
+                    <RecordingPlayButton callId={c.call_id} />
+                  </div>
                 </div>
                 <p className="leading-relaxed text-foreground/90 break-words whitespace-pre-wrap">
                   {c.transcript_summary || (
@@ -646,5 +650,54 @@ function Detail({
       </span>
       <span className="flex-1">{children}</span>
     </li>
+  );
+}
+
+// Inline recording player. Lazy-loads the audio from the admin recording proxy
+// (which streams through ElevenLabs / signed URL), then swaps the trigger out
+// for a native <audio controls> element so users can scrub.
+function RecordingPlayButton({ callId }: { callId: string }) {
+  const [loading, setLoading] = useState(false);
+  const [audioUrl, setAudioUrl] = useState<string | null>(null);
+
+  // Revoke the object URL when the card unmounts so we don't leak the blob.
+  useEffect(() => {
+    return () => {
+      if (audioUrl) URL.revokeObjectURL(audioUrl);
+    };
+  }, [audioUrl]);
+
+  async function load() {
+    if (audioUrl || loading) return;
+    setLoading(true);
+    try {
+      const res = await fetch(`/api/admin/recording/${encodeURIComponent(callId)}`);
+      if (!res.ok) {
+        const body = (await res.json().catch(() => null)) as { error?: string } | null;
+        toast.error(body?.error || 'Recording is not available.');
+        return;
+      }
+      const blob = await res.blob();
+      setAudioUrl(URL.createObjectURL(blob));
+    } catch {
+      toast.error('Could not load recording.');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  if (audioUrl) {
+    return <audio src={audioUrl} controls className="h-7" preload="metadata" />;
+  }
+  return (
+    <button
+      type="button"
+      onClick={load}
+      disabled={loading}
+      className="inline-flex items-center gap-1 rounded-md border border-border/60 px-2 py-0.5 text-[10px] font-medium uppercase tracking-widest text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-50"
+    >
+      <Play className="size-3" />
+      {loading ? 'Loading…' : 'Play recording'}
+    </button>
   );
 }

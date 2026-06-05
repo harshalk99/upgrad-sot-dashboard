@@ -26,7 +26,12 @@ export async function GET(
     await requireAdmin();
   } catch (e) {
     if (e instanceof AuthError) {
-      return NextResponse.json({ error: e.message }, { status: e.status });
+      // User-facing copy — "Requires admin role" leaks internal vocabulary.
+      const msg =
+        e.status === 403
+          ? 'Recording playback is restricted to authorised users.'
+          : e.message;
+      return NextResponse.json({ error: msg }, { status: e.status });
     }
     throw e;
   }
