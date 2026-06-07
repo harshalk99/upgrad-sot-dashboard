@@ -3,7 +3,7 @@
 // Daily connectivity trend chart for the Client Connectivity page.
 // Bars for the 3 absolute count series (Attempted / Connected / Engaged) grouped per day,
 // with a dashed Connect % line overlaid on a secondary y-axis.
-// Per-call counts (one row per call_log entry), per IST day.
+// Unique-lead counts per IST day (a lead retried 3× the same day counts once).
 import {
   Bar,
   CartesianGrid,

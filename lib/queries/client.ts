@@ -418,10 +418,11 @@ export async function getClientConnectivityFilterOptions(
 }
 
 // ─── Per-day connectivity trend ────────────────────────────────────────────
-// Per-CALL counts bucketed by IST day. KPI cards above the chart show unique
-// customer counts; this view counts every call attempt for trend visibility.
-// "Connected" excludes DNP/INVALID classifications (call did not produce a
-// real conversation). "Engaged" = HOT/WARM/CB_LATER per-call classification.
+// Unique-LEAD counts bucketed by IST day (matches the KPI cards above the
+// chart so the trend doesn't double-count retried leads). A lead is:
+//   attempted on day X = ≥1 call placed that day
+//   connected on day X = ≥1 of those calls had a non-DNP/non-INVALID classification
+//   engaged on day X   = ≥1 of those calls reached HOT/WARM/CB_LATER
 
 export type ConnectivityDailyRow = {
   day: string;

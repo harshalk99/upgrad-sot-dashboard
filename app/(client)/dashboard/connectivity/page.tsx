@@ -125,9 +125,9 @@ export default async function ConnectivityPage({ searchParams }: PageProps) {
           title="Daily Connectivity Trend"
           subtitle={
             <>
-              Last 30 days · attempted, connected, engaged calls + daily connect %
+              Last 30 days · unique leads attempted, connected, engaged + daily connect %
               <span className="ml-1 text-muted-foreground/70">
-                · counts every call attempt (a customer dialed twice appears twice)
+                · a lead retried multiple times in a day counts once
               </span>
             </>
           }
