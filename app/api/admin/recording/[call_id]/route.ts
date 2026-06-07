@@ -1,39 +1,40 @@
-// Recording proxy — streams call audio from ElevenLabs back to the browser
-// without ever exposing the API key. SPEC.md §8.2.2 "RecordingPlayer using
-// recording_url or 11Labs API proxy" + "Admin+ only".
+// Recording proxy. SPEC.md §8.2.2 + §10.2.
 //
-// Flow:
-//   1. Browser asks GET /api/admin/recording/<call_id>
-//   2. We auth-gate to admin+, look up the call row, and either
-//      (a) redirect to a stored recording_url, OR
-//      (b) fetch from 11Labs /v1/convai/conversations/<id>/audio with our API key
-//   3. Stream the bytes back, forwarding Range/Content-Type headers so HTMLMediaElement
-//      can seek.
+// Two delivery paths depending on call age:
+//
+//   (a) Calls on/after RECORDING_CLIENT_CUTOFF (IST) — redirect to the Azure
+//       blob container. Every authenticated user (client + admin) can play.
+//       From 2026-06-07 the platform writes a copy of every conversation to
+//       upgradsotm5037 → campaign-recordings/<call_id>, so we just hand the
+//       browser the public URL and let it stream directly.
+//
+//   (b) Older calls — admin/super_admin only. Falls back to a stored
+//       `recording_url` on the call row (presigned), or to the ElevenLabs
+//       Conversational AI audio endpoint when the call_id matches an 11labs
+//       conversation_id.
 
 import { type NextRequest, NextResponse } from 'next/server';
-import { requireAdmin, AuthError } from '@/lib/auth/requireRole';
+import { getCurrentUser } from '@/lib/auth/getUser';
+import { roleHasAtLeast } from '@/lib/auth/userRole';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
 
 export const runtime = 'nodejs';
-// Cache-bust per call — recordings don't change but we don't want Next prerendering.
 export const dynamic = 'force-dynamic';
+
+// Cutoff at 2026-06-07 00:00 IST. Stored as UTC for direct comparison with
+// timestamptz columns (Asia/Kolkata = UTC+05:30, so 06-07 00:00 IST = 06-06 18:30 UTC).
+const RECORDING_CLIENT_CUTOFF_UTC = new Date('2026-06-06T18:30:00Z');
+
+const AZURE_BLOB_BASE =
+  'https://upgradsotm5037.blob.core.windows.net/campaign-recordings';
 
 export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ call_id: string }> }
 ) {
-  try {
-    await requireAdmin();
-  } catch (e) {
-    if (e instanceof AuthError) {
-      // User-facing copy — "Requires admin role" leaks internal vocabulary.
-      const msg =
-        e.status === 403
-          ? 'Recording playback is restricted to authorised users.'
-          : e.message;
-      return NextResponse.json({ error: msg }, { status: e.status });
-    }
-    throw e;
+  const user = await getCurrentUser();
+  if (!user) {
+    return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
   }
 
   const { call_id } = await params;
@@ -45,7 +46,7 @@ export async function GET(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const { data: row } = await (sb as any)
     .from('upgrad_call_logs')
-    .select('call_id, recording_url, platform')
+    .select('call_id, call_start, recording_url, platform')
     .eq('call_id', call_id)
     .maybeSingle();
 
@@ -53,13 +54,34 @@ export async function GET(
     return NextResponse.json({ error: 'Call not found' }, { status: 404 });
   }
 
-  // (a) If we already have a direct recording URL stored, redirect (presigned URL etc.)
+  const callStart = row.call_start ? new Date(row.call_start as string) : null;
+  const isPostCutoff =
+    callStart !== null && callStart.getTime() >= RECORDING_CLIENT_CUTOFF_UTC.getTime();
+
+  // (a) New calls — Azure-hosted recording, accessible to any authenticated
+  // user. We return the URL as JSON (not a 302) so the browser can wire it
+  // straight into an <audio> element; that avoids streaming the bytes back
+  // through the dashboard and dodges any CORS issues on a fetch-then-blob path.
+  if (isPostCutoff) {
+    return NextResponse.json(
+      { url: `${AZURE_BLOB_BASE}/${encodeURIComponent(call_id)}` },
+      { status: 200, headers: { 'cache-control': 'private, no-store' } }
+    );
+  }
+
+  // (b) Older calls — admin+ only. Clients see a friendly access message.
+  if (!roleHasAtLeast(user.role, 'admin')) {
+    return NextResponse.json(
+      { error: 'Recording playback is restricted to authorised users.' },
+      { status: 403 }
+    );
+  }
+
+  // Admin path — stored URL takes precedence, else proxy via ElevenLabs.
   if (row.recording_url) {
     return NextResponse.redirect(row.recording_url as string, 302);
   }
 
-  // (b) Otherwise fall back to the ElevenLabs Conversational AI audio endpoint.
-  // The call_id matches the 11Labs conversation_id for 11labs-platform calls.
   if (row.platform && String(row.platform).toLowerCase() !== '11labs') {
     return NextResponse.json(
       { error: `No recording available for platform ${row.platform}` },
@@ -82,10 +104,8 @@ export async function GET(
   const upstream = await fetch(upstreamUrl, {
     headers: {
       'xi-api-key': apiKey,
-      // Forward Range so the audio element can seek.
       ...(req.headers.get('range') ? { Range: req.headers.get('range')! } : {})
     },
-    // Don't let Next cache audio responses.
     cache: 'no-store'
   });
 
@@ -96,7 +116,6 @@ export async function GET(
     );
   }
 
-  // Forward useful headers
   const headers = new Headers();
   const passthrough = [
     'content-type',
@@ -111,11 +130,10 @@ export async function GET(
   }
   if (!headers.has('content-type')) headers.set('content-type', 'audio/mpeg');
   if (!headers.has('accept-ranges')) headers.set('accept-ranges', 'bytes');
-  // Force a strict no-cache so a flagged call's audio isn't held in a CDN.
   headers.set('cache-control', 'private, no-store');
 
   return new NextResponse(upstream.body, {
-    status: upstream.status, // 200 or 206
+    status: upstream.status,
     headers
   });
 }

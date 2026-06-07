@@ -653,19 +653,22 @@ function Detail({
   );
 }
 
-// Inline recording player. Lazy-loads the audio from the admin recording proxy
-// (which streams through ElevenLabs / signed URL), then swaps the trigger out
-// for a native <audio controls> element so users can scrub.
+// Inline recording player. Lazy-loads the audio: the recording route either
+// returns a direct URL (newer calls in object storage) or streams the bytes
+// (legacy calls proxied through ElevenLabs). We swap the trigger out for a
+// native <audio controls> element so users can scrub.
 function RecordingPlayButton({ callId }: { callId: string }) {
   const [loading, setLoading] = useState(false);
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
+  const [isBlob, setIsBlob] = useState(false);
 
-  // Revoke the object URL when the card unmounts so we don't leak the blob.
+  // Revoke the blob URL when the card unmounts so we don't leak it. Direct
+  // URLs (Azure-hosted) don't need cleanup.
   useEffect(() => {
     return () => {
-      if (audioUrl) URL.revokeObjectURL(audioUrl);
+      if (isBlob && audioUrl) URL.revokeObjectURL(audioUrl);
     };
-  }, [audioUrl]);
+  }, [isBlob, audioUrl]);
 
   async function load() {
     if (audioUrl || loading) return;
@@ -677,8 +680,20 @@ function RecordingPlayButton({ callId }: { callId: string }) {
         toast.error(body?.error || 'Recording is not available.');
         return;
       }
-      const blob = await res.blob();
-      setAudioUrl(URL.createObjectURL(blob));
+      const ct = res.headers.get('content-type') ?? '';
+      if (ct.includes('application/json')) {
+        const body = (await res.json()) as { url?: string };
+        if (!body.url) {
+          toast.error('Recording is not available.');
+          return;
+        }
+        setAudioUrl(body.url);
+        setIsBlob(false);
+      } else {
+        const blob = await res.blob();
+        setAudioUrl(URL.createObjectURL(blob));
+        setIsBlob(true);
+      }
     } catch {
       toast.error('Could not load recording.');
     } finally {
