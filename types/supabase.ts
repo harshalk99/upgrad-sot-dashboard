@@ -1338,6 +1338,7 @@ export type Database = {
           attempted: number | null
           callback_pending: number | null
           connected: number | null
+          engaged: number | null
           hot: number | null
           qualified: number | null
           total_leads: number | null

@@ -162,8 +162,8 @@ export default async function DashboardOverviewPage({ searchParams }: PageProps)
             title="Lead Funnel"
             subtitle={
               filtersActive
-                ? 'Total → Attempted → Connected → Engaged → Hot/Warm · filtered by source/UTM'
-                : 'Total → Attempted → Connected → Engaged → Hot/Warm'
+                ? 'Attempted → Connected → Engaged → Qualified · filtered by source/UTM'
+                : 'Attempted → Connected → Engaged → Qualified (Hot + Warm)'
             }
             height={260}
           >

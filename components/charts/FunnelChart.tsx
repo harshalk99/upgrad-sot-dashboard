@@ -1,37 +1,38 @@
 'use client';
 
-// 5-level funnel: Total → Attempted → Connected → Qualified → Hot+Warm.
-// Implemented as a custom SVG (not Recharts FunnelChart) to keep clean Kubota lines.
+// 4-stage lead funnel for the client Overview.
+//
+//   Attempted   leads we placed at least one call to (lead_stage <> 'Not Yet Called')
+//   Connected   picked up the call (all stages except DNP)
+//   Engaged     had a meaningful conversation —
+//                 HOT + WARM + CB Later + Not Interested + Not Eligible
+//   Qualified   classified Hot or Warm
+//
+// Numbers come from v_client_funnel / client_funnel_filtered — `qualified`
+// already equals HOT+WARM server-side, so we render it directly.
 
 import { useMemo } from 'react';
 import { cn } from '@/lib/utils';
 
 type Props = {
   data: {
-    total_leads?: number | null;
     attempted?: number | null;
     connected?: number | null;
+    engaged?: number | null;
     qualified?: number | null;
-    hot?: number | null;
-    warm?: number | null;
   } | null;
 };
 
 export function FunnelChart({ data }: Props) {
-  const steps = useMemo(() => {
-    const total = data?.total_leads ?? 0;
-    const attempted = data?.attempted ?? 0;
-    const connected = data?.connected ?? 0;
-    const qualified = data?.qualified ?? 0;
-    const hotWarm = (data?.hot ?? 0) + (data?.warm ?? 0);
-    return [
-      { label: 'Total Leads', value: total, color: 'rgb(100 116 139)' },
-      { label: 'Attempted', value: attempted, color: 'rgb(168 85 247)' },
-      { label: 'Connected', value: connected, color: 'rgb(59 130 246)' },
-      { label: 'Engaged', value: qualified, color: 'rgb(16 185 129)' },
-      { label: 'Hot + Warm', value: hotWarm, color: 'rgb(220 38 38)' }
-    ];
-  }, [data]);
+  const steps = useMemo(
+    () => [
+      { label: 'Attempted', value: data?.attempted ?? 0, color: 'rgb(168 85 247)' },
+      { label: 'Connected', value: data?.connected ?? 0, color: 'rgb(59 130 246)' },
+      { label: 'Engaged',   value: data?.engaged   ?? 0, color: 'rgb(16 185 129)' },
+      { label: 'Qualified (Hot + Warm)', value: data?.qualified ?? 0, color: 'rgb(220 38 38)' }
+    ],
+    [data]
+  );
 
   const max = Math.max(...steps.map((s) => s.value), 1);
 
@@ -40,15 +41,23 @@ export function FunnelChart({ data }: Props) {
       {steps.map((s, i) => {
         const widthPct = (s.value / max) * 100;
         const prev = i > 0 ? steps[i - 1].value : null;
-        const dropPct = prev && prev > 0 ? Math.round((100 * (prev - s.value)) / prev) : null;
+        const dropPct =
+          prev && prev > 0 ? Math.round((100 * (prev - s.value)) / prev) : null;
+        const ofAttempted =
+          steps[0].value > 0 ? Math.round((100 * s.value) / steps[0].value) : null;
         return (
           <div key={s.label} className="group relative">
             <div className="mb-1 flex items-baseline justify-between text-xs">
               <span className="text-muted-foreground">{s.label}</span>
               <span className="font-numeric font-medium tabular-nums">
                 {s.value.toLocaleString('en-IN')}
-                {dropPct !== null && dropPct > 0 && (
+                {ofAttempted !== null && i > 0 && (
                   <span className="ml-2 text-[10px] text-muted-foreground">
+                    {ofAttempted}% of attempted
+                  </span>
+                )}
+                {dropPct !== null && dropPct > 0 && (
+                  <span className="ml-2 text-[10px] text-muted-foreground/70">
                     −{dropPct}% step
                   </span>
                 )}
