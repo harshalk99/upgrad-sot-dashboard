@@ -10,9 +10,18 @@ import type { Database } from '@/types/supabase';
 
 type SB = SupabaseClient<Database>;
 
-export async function getClientFunnel(sb: SB) {
-  const { data } = await sb.from('v_client_funnel').select('*').maybeSingle();
-  return data;
+export async function getClientFunnel(sb: SB, filters?: ConnectivityFilters) {
+  // When the page has no source/UTM filter active we stay on the cheap
+  // pre-aggregated view; otherwise we call the filtered RPC (same 7 columns,
+  // computed on the fly with the 11-dim WHERE clause).
+  if (!filters || !Object.values(filters).some((v) => v && v.length > 0)) {
+    const { data } = await sb.from('v_client_funnel').select('*').maybeSingle();
+    return data;
+  }
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data } = await (sb as any).rpc('client_funnel_filtered', mapFiltersToRpcArgs(filters));
+  const row = Array.isArray(data) ? data[0] : data;
+  return row ?? null;
 }
 
 export async function getClientDispositions(sb: SB) {
@@ -249,12 +258,27 @@ export type DispositionDateRange = { from?: string; to?: string }; // YYYY-MM-DD
 
 export async function getClientDispositionBreakdown(
   sb: SB,
-  range?: DispositionDateRange
+  range?: DispositionDateRange,
+  filters?: ConnectivityFilters
 ) {
-  // When the user has set any bound, use the IST-bucketed RPC (correct day
-  // boundaries for Asia/Kolkata). When no bound is set we want cumulative
-  // all-time counts — the IST RPC returns 0 rows for NULL params, so fall
-  // back to client_dispositions_in_range which treats NULL as "no filter".
+  const hasFilter = filters && Object.values(filters).some((v) => v && v.length > 0);
+  // With any source/UTM filter, always go through the combined RPC (it handles
+  // date + dimensions in one query and treats NULL bounds as "no filter").
+  if (hasFilter) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data } = await (sb as any).rpc('client_dispositions_filtered', {
+      p_from: range?.from ?? null,
+      p_to: range?.to ?? null,
+      ...mapFiltersToRpcArgs(filters)
+    });
+    const rows = (data ?? []) as { lead_stage: string | null; lead_count: number }[];
+    return rows
+      .filter((r) => r.lead_stage && r.lead_stage !== 'Not Yet Called')
+      .map((r) => ({ stage: r.lead_stage as string, count: r.lead_count ?? 0 }));
+  }
+  // Date-only / no filter — keep the existing IST-bucketed RPC path. When no
+  // bound is set we want cumulative all-time counts, and the IST RPC returns
+  // 0 rows for NULL params, so fall back to client_dispositions_in_range.
   const hasBound = Boolean(range?.from || range?.to);
   const rpcName = hasBound ? 'get_dispositions_by_ist_date' : 'client_dispositions_in_range';
   // eslint-disable-next-line @typescript-eslint/no-explicit-any

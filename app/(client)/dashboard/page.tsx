@@ -8,15 +8,26 @@ import { createSupabaseServerClient } from '@/lib/supabase/server';
 import { getCurrentUser } from '@/lib/auth/getUser';
 import {
   getClientAvgCallDuration,
+  getClientConnectivityFilterOptions,
   getClientConversationDepth,
   getClientDispositionBreakdown,
   getClientFunnel,
   getClientMinutesSummary,
   getClientStatePerformance,
-  getClientTopObjections
+  getClientTopObjections,
+  type ConnectivityFilters
 } from '@/lib/queries/client';
 import { formatDuration, formatPct } from '@/lib/formatters';
-import { decodeDateRange, encodeDateRange, hasDateRange } from '@/lib/url-filters';
+import {
+  CONNECTIVITY_FULL_TO_SHORT,
+  CONNECTIVITY_SHORT_TO_FULL,
+  decodeDateRange,
+  decodeFiltersFromSearchParams,
+  encodeDateRange,
+  encodeFiltersToSearchParams,
+  hasAnyFilter,
+  hasDateRange
+} from '@/lib/url-filters';
 import { format as formatDate } from 'date-fns';
 import { Header } from '@/components/layout/Header';
 import { RefreshButton } from '@/components/layout/RefreshButton';
@@ -27,6 +38,7 @@ import { FunnelChart } from '@/components/charts/FunnelChart';
 import { StageBreakdownGrid } from '@/components/dashboard/StageBreakdownGrid';
 import { PerformanceTable } from '@/components/dashboard/PerformanceTable';
 import { DateRangeFilter } from '@/components/dashboard/DateRangeFilter';
+import { ConnectivityFilterBar } from '@/components/dashboard/ConnectivityFilterBar';
 
 type PageProps = {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
@@ -41,21 +53,36 @@ export default async function DashboardOverviewPage({ searchParams }: PageProps)
   // can use different prefixes (e.g. 'r' for reports).
   const dispRange = decodeDateRange(rawParams, 'd');
 
+  // Shared source/UTM filter (same 11 dims as /dashboard/connectivity). Drives
+  // BOTH the Lead Funnel and the Disposition breakdown card — the user picks
+  // a slice once and both visuals update together.
+  const filters: ConnectivityFilters = decodeFiltersFromSearchParams(
+    rawParams,
+    CONNECTIVITY_SHORT_TO_FULL
+  ) as ConnectivityFilters;
+  const filtersActive = hasAnyFilter(filters);
+
   const user = (await getCurrentUser())!;
   const sb = await createSupabaseServerClient();
 
   // Source performance card removed 2026-05-23 — moved to /dashboard/connectivity
   // as a filter dimension, where it can slice the entire connectivity story.
-  const [funnel, dispositions, minutes, states, avgCall, objections, depth] =
+  const [funnel, dispositions, minutes, states, avgCall, objections, depth, filterOptions] =
     await Promise.all([
-      getClientFunnel(sb),
-      getClientDispositionBreakdown(sb, dispRange),
+      getClientFunnel(sb, filters),
+      getClientDispositionBreakdown(sb, dispRange, filters),
       getClientMinutesSummary(sb),
       getClientStatePerformance(sb),
       getClientAvgCallDuration(sb),
       getClientTopObjections(sb, 10),
-      getClientConversationDepth(sb)
+      getClientConversationDepth(sb),
+      getClientConnectivityFilterOptions(sb)
     ]);
+
+  // Preserve everything except the disposition date range on drill-in links.
+  const preserveBase = encodeFiltersToSearchParams(filters, CONNECTIVITY_FULL_TO_SHORT);
+  for (const [k, v] of encodeDateRange(dispRange, 'd')) preserveBase.set(k, v);
+  const preserveQuery = preserveBase.toString() || undefined;
 
   const dispSubtitle = hasDateRange(dispRange)
     ? `Filtered: ${dispRange.from ? formatDate(new Date(dispRange.from), 'd MMM') : '…'} – ${dispRange.to ? formatDate(new Date(dispRange.to), 'd MMM yyyy') : '…'} (by last call)`
@@ -128,10 +155,16 @@ export default async function DashboardOverviewPage({ searchParams }: PageProps)
           />
         </MetricCardGrid>
 
+        <ConnectivityFilterBar options={filterOptions} currentFilters={filters} />
+
         <div className="grid gap-4 lg:grid-cols-2">
           <ChartCard
             title="Lead Funnel"
-            subtitle="Total → Attempted → Connected → Engaged → Hot/Warm"
+            subtitle={
+              filtersActive
+                ? 'Total → Attempted → Connected → Engaged → Hot/Warm · filtered by source/UTM'
+                : 'Total → Attempted → Connected → Engaged → Hot/Warm'
+            }
             height={260}
           >
             <FunnelChart data={funnel ?? null} />
@@ -139,7 +172,11 @@ export default async function DashboardOverviewPage({ searchParams }: PageProps)
 
           <ChartCard
             title="Disposition breakdown"
-            subtitle={dispSubtitle}
+            subtitle={
+              filtersActive
+                ? `${dispSubtitle} · filtered by source/UTM`
+                : dispSubtitle
+            }
             toolbar={<DateRangeFilter currentRange={dispRange} paramPrefix="d" />}
             height={260}
           >
@@ -148,7 +185,7 @@ export default async function DashboardOverviewPage({ searchParams }: PageProps)
                 dispositions={dispositions}
                 columns={2}
                 compact
-                preserveQuery={encodeDateRange(dispRange, 'd').toString() || undefined}
+                preserveQuery={preserveQuery}
               />
             </div>
           </ChartCard>
