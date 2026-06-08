@@ -52,11 +52,14 @@ const LABELS: Record<keyof ConnectivityFilterOptions, string> = {
   original_utm_term: 'utm_term'
 };
 
+// "Lead Source" was repointed to the data_source_name column (2026-06-08) —
+// the dedicated data_source_name dropdown would now be a duplicate, so it's
+// dropped from the UI. The filter dim is still wired in the URL/RPC layer
+// for any old bookmarks that pin `dsn=...`.
 const PRIMARY_KEYS: (keyof ConnectivityFilterOptions)[] = [
   'lead_source',
   'data_acquisition_channel',
   'data_source_type',
-  'data_source_name',
   'data_source_batch'
 ];
 
