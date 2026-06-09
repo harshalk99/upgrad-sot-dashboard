@@ -1,17 +1,24 @@
 // Recording proxy. SPEC.md §8.2.2 + §10.2.
 //
-// Two delivery paths depending on call age:
+// Access rules:
 //
-//   (a) Calls on/after RECORDING_CLIENT_CUTOFF (IST) — redirect to the Azure
-//       blob container. Every authenticated user (client + admin) can play.
-//       From 2026-06-07 the platform writes a copy of every conversation to
-//       upgradsotm5037 → campaign-recordings/<call_id>, so we just hand the
-//       browser the public URL and let it stream directly.
+//   Admin / super_admin   can play any recording on any call.
+//   Client                can play a recording only if BOTH:
+//                           1. the call's lead is Hot, Warm, or CB Later
+//                              (AI Bot Qualified - High Intent | - Warm |
+//                               AI Bot Reached - CB Later), AND
+//                           2. the call is on/after RECORDING_CLIENT_CUTOFF
+//                              (2026-06-07 IST — when the platform started
+//                              writing copies to the Azure blob container).
 //
-//   (b) Older calls — admin/super_admin only. Falls back to a stored
-//       `recording_url` on the call row (presigned), or to the ElevenLabs
-//       Conversational AI audio endpoint when the call_id matches an 11labs
-//       conversation_id.
+// Delivery paths:
+//
+//   (a) Calls on/after the cutoff — return the Azure blob URL as JSON; the
+//       browser plays it directly via <audio>. Skips the dashboard for bytes
+//       and avoids CORS on a fetch-then-blob path.
+//   (b) Pre-cutoff calls (admin only) — fall back to a stored recording_url
+//       on the call row (presigned), or proxy the ElevenLabs Conversational
+//       AI audio endpoint when the call_id matches an 11labs conversation_id.
 
 import { type NextRequest, NextResponse } from 'next/server';
 import { getCurrentUser } from '@/lib/auth/getUser';
@@ -46,7 +53,7 @@ export async function GET(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const { data: row } = await (sb as any)
     .from('upgrad_call_logs')
-    .select('call_id, call_start, recording_url, platform')
+    .select('call_id, call_start, recording_url, platform, lead_id')
     .eq('call_id', call_id)
     .maybeSingle();
 
@@ -54,14 +61,50 @@ export async function GET(
     return NextResponse.json({ error: 'Call not found' }, { status: 404 });
   }
 
+  const isAdmin = roleHasAtLeast(user.role, 'admin');
+
+  // For clients, recording playback is gated to high-intent leads (Hot/Warm)
+  // only — we don't surface call audio for DNP / Not Interested / etc. Admins
+  // bypass this restriction.
+  if (!isAdmin) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const sbAny = sb as any;
+    const [activeRes, archivedRes] = await Promise.all([
+      sbAny
+        .from('upgrad_active_leads')
+        .select('lead_stage')
+        .eq('ls_prospect_id', row.lead_id)
+        .maybeSingle(),
+      sbAny
+        .from('upgrad_archived_leads')
+        .select('lead_stage')
+        .eq('ls_prospect_id', row.lead_id)
+        .maybeSingle()
+    ]);
+    const leadStage: string | null =
+      activeRes?.data?.lead_stage ?? archivedRes?.data?.lead_stage ?? null;
+    const ALLOWED = new Set([
+      'AI Bot Qualified - High Intent',
+      'AI Bot Qualified - Warm',
+      'AI Bot Reached - CB Later'
+    ]);
+    if (!leadStage || !ALLOWED.has(leadStage)) {
+      return NextResponse.json(
+        { error: 'Recording playback is restricted to authorised users.' },
+        { status: 403 }
+      );
+    }
+  }
+
   const callStart = row.call_start ? new Date(row.call_start as string) : null;
   const isPostCutoff =
     callStart !== null && callStart.getTime() >= RECORDING_CLIENT_CUTOFF_UTC.getTime();
 
   // (a) New calls — Azure-hosted recording, accessible to any authenticated
-  // user. We return the URL as JSON (not a 302) so the browser can wire it
-  // straight into an <audio> element; that avoids streaming the bytes back
-  // through the dashboard and dodges any CORS issues on a fetch-then-blob path.
+  // user that cleared the per-lead gate above. We return the URL as JSON (not
+  // a 302) so the browser can wire it straight into an <audio> element; that
+  // avoids streaming the bytes back through the dashboard and dodges any CORS
+  // issues on a fetch-then-blob path.
   if (isPostCutoff) {
     return NextResponse.json(
       { url: `${AZURE_BLOB_BASE}/${encodeURIComponent(call_id)}` },
@@ -69,8 +112,10 @@ export async function GET(
     );
   }
 
-  // (b) Older calls — admin+ only. Clients see a friendly access message.
-  if (!roleHasAtLeast(user.role, 'admin')) {
+  // (b) Older calls — admin+ only on the streaming/proxy path. Clients on
+  // pre-cutoff Hot/Warm calls still 403 here because the Azure copy doesn't
+  // exist for them; nothing to play.
+  if (!isAdmin) {
     return NextResponse.json(
       { error: 'Recording playback is restricted to authorised users.' },
       { status: 403 }
