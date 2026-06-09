@@ -3,31 +3,23 @@
 //   - Removed Daily-Volume-per-day chart
 //   - Added per-disposition-stage breakdown grid
 //   - Added Source performance + State performance business tables
+//   - Source/UTM filter belongs on the Connectivity page only (NOT here)
+//   - Lead Funnel + Disposition card share ONE date range (?dfrom/?dto)
+//     so the user filters once and both cards re-bucket together
 import { Flame, Heart, Clock, Timer } from 'lucide-react';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
 import { getCurrentUser } from '@/lib/auth/getUser';
 import {
   getClientAvgCallDuration,
-  getClientConnectivityFilterOptions,
   getClientConversationDepth,
   getClientDispositionBreakdown,
   getClientFunnel,
   getClientMinutesSummary,
   getClientStatePerformance,
-  getClientTopObjections,
-  type ConnectivityFilters
+  getClientTopObjections
 } from '@/lib/queries/client';
 import { formatDuration, formatPct } from '@/lib/formatters';
-import {
-  CONNECTIVITY_FULL_TO_SHORT,
-  CONNECTIVITY_SHORT_TO_FULL,
-  decodeDateRange,
-  decodeFiltersFromSearchParams,
-  encodeDateRange,
-  encodeFiltersToSearchParams,
-  hasAnyFilter,
-  hasDateRange
-} from '@/lib/url-filters';
+import { decodeDateRange, encodeDateRange, hasDateRange } from '@/lib/url-filters';
 import { format as formatDate } from 'date-fns';
 import { Header } from '@/components/layout/Header';
 import { RefreshButton } from '@/components/layout/RefreshButton';
@@ -38,7 +30,6 @@ import { FunnelChart } from '@/components/charts/FunnelChart';
 import { StageBreakdownGrid } from '@/components/dashboard/StageBreakdownGrid';
 import { PerformanceTable } from '@/components/dashboard/PerformanceTable';
 import { DateRangeFilter } from '@/components/dashboard/DateRangeFilter';
-import { ConnectivityFilterBar } from '@/components/dashboard/ConnectivityFilterBar';
 
 type PageProps = {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
@@ -47,50 +38,82 @@ type PageProps = {
 // Defensive — search-param changes should always re-render with fresh data.
 export const dynamic = 'force-dynamic';
 
+// All stages that can appear in the disposition breakdown view (v_lead_dispositions_ist
+// already filters out 'Not Yet Called' and NULLs). DNP is excluded only when computing
+// Connected/Engaged/Qualified; it's still part of Attempted.
+const STAGE_DNP = 'AI Bot Reached - DNP';
+const STAGE_HOT = 'AI Bot Qualified - High Intent';
+const STAGE_WARM = 'AI Bot Qualified - Warm';
+const STAGE_CB_LATER = 'AI Bot Reached - CB Later';
+const STAGE_NOT_INTERESTED = 'AI Bot Called - Not Interested';
+const STAGE_NOT_ELIGIBLE = 'AI Bot Called - Not Eligible';
+const ENGAGED_STAGES = new Set([
+  STAGE_HOT, STAGE_WARM, STAGE_CB_LATER, STAGE_NOT_INTERESTED, STAGE_NOT_ELIGIBLE
+]);
+
+/** Derive the same 4-stage funnel shape from a date-bucketed disposition breakdown.
+ *  Each row in `dispositions` is { stage, count } for leads whose last_called_at
+ *  fell inside the chosen window — so summing across them gives a date-filtered
+ *  funnel that uses the same bucketing rule the Disposition card uses. */
+function deriveFunnelFromDispositions(rows: { stage: string; count: number }[]) {
+  const get = (s: string) => rows.find((r) => r.stage === s)?.count ?? 0;
+  const total = rows.reduce((acc, r) => acc + r.count, 0);
+  const dnp = get(STAGE_DNP);
+  const hot = get(STAGE_HOT);
+  const warm = get(STAGE_WARM);
+  const engaged = rows.reduce(
+    (acc, r) => acc + (ENGAGED_STAGES.has(r.stage) ? r.count : 0),
+    0
+  );
+  return {
+    total_leads: total,
+    attempted: total,
+    connected: total - dnp,
+    engaged,
+    qualified: hot + warm,
+    hot,
+    warm,
+    callback_pending: get(STAGE_CB_LATER)
+  };
+}
+
 export default async function DashboardOverviewPage({ searchParams }: PageProps) {
   const rawParams = await searchParams;
-  // 'd' prefix = disposition card date range. Other date filters on this page later
-  // can use different prefixes (e.g. 'r' for reports).
+  // Single shared date range on the Overview — controls BOTH the Lead Funnel
+  // and the Disposition breakdown card. Same bucketing rule as the dispositions
+  // page: by last_called_at IST.
   const dispRange = decodeDateRange(rawParams, 'd');
-
-  // Shared source/UTM filter (same 11 dims as /dashboard/connectivity). Drives
-  // BOTH the Lead Funnel and the Disposition breakdown card — the user picks
-  // a slice once and both visuals update together.
-  const filters: ConnectivityFilters = decodeFiltersFromSearchParams(
-    rawParams,
-    CONNECTIVITY_SHORT_TO_FULL
-  ) as ConnectivityFilters;
-  const filtersActive = hasAnyFilter(filters);
+  const dateActive = hasDateRange(dispRange);
 
   const user = (await getCurrentUser())!;
   const sb = await createSupabaseServerClient();
 
-  // Source performance card removed 2026-05-23 — moved to /dashboard/connectivity
-  // as a filter dimension, where it can slice the entire connectivity story.
-  const [funnel, dispositions, minutes, states, avgCall, objections, depth, filterOptions] =
+  const [funnelAllTime, dispositions, minutes, states, avgCall, objections, depth] =
     await Promise.all([
-      getClientFunnel(sb, filters),
-      getClientDispositionBreakdown(sb, dispRange, filters),
+      getClientFunnel(sb),
+      getClientDispositionBreakdown(sb, dispRange),
       getClientMinutesSummary(sb),
       getClientStatePerformance(sb),
       getClientAvgCallDuration(sb),
       getClientTopObjections(sb, 10),
-      getClientConversationDepth(sb),
-      getClientConnectivityFilterOptions(sb)
+      getClientConversationDepth(sb)
     ]);
 
-  // Preserve everything except the disposition date range on drill-in links.
-  const preserveBase = encodeFiltersToSearchParams(filters, CONNECTIVITY_FULL_TO_SHORT);
-  for (const [k, v] of encodeDateRange(dispRange, 'd')) preserveBase.set(k, v);
-  const preserveQuery = preserveBase.toString() || undefined;
+  // When a date filter is active, the funnel is derived from the date-bucketed
+  // disposition breakdown (same rows used by the right-hand card). When not,
+  // we render the cheap pre-aggregated lifetime view.
+  const funnel = dateActive
+    ? deriveFunnelFromDispositions(dispositions)
+    : funnelAllTime;
 
-  const dispSubtitle = hasDateRange(dispRange)
+  const preserveQuery = encodeDateRange(dispRange, 'd').toString() || undefined;
+
+  const dispSubtitle = dateActive
     ? `Filtered: ${dispRange.from ? formatDate(new Date(dispRange.from), 'd MMM') : '…'} – ${dispRange.to ? formatDate(new Date(dispRange.to), 'd MMM yyyy') : '…'} (by last call)`
     : 'Where every lead ends up. Click a stage to drill in.';
-
-  // "Disqualified" card removed 2026-05-24 — the count (total − hot − warm)
-  // was misleading because it lumped DNP, Not Yet Called, and pending callbacks
-  // together with actual disqualifications. Use the Dispositions page instead.
+  const funnelSubtitle = dateActive
+    ? `Attempted → Connected → Engaged → Qualified · ${dispSubtitle.replace(/^Filtered: /, '')}`
+    : 'Attempted → Connected → Engaged → Qualified (Hot + Warm)';
 
   const connectRate =
     funnel?.attempted && funnel.attempted > 0
@@ -104,7 +127,6 @@ export default async function DashboardOverviewPage({ searchParams }: PageProps)
       ? { warn: 75, critical: 90 }
       : undefined;
 
-  // Shape rows for PerformanceTable (State only — Source moved to Connectivity filters).
   const stateRows = states.map((s) => ({
     label: s.state,
     total: s.total_leads,
@@ -155,16 +177,11 @@ export default async function DashboardOverviewPage({ searchParams }: PageProps)
           />
         </MetricCardGrid>
 
-        <ConnectivityFilterBar options={filterOptions} currentFilters={filters} />
-
         <div className="grid gap-4 lg:grid-cols-2">
           <ChartCard
             title="Lead Funnel"
-            subtitle={
-              filtersActive
-                ? 'Attempted → Connected → Engaged → Qualified · filtered by source/UTM'
-                : 'Attempted → Connected → Engaged → Qualified (Hot + Warm)'
-            }
+            subtitle={funnelSubtitle}
+            toolbar={<DateRangeFilter currentRange={dispRange} paramPrefix="d" />}
             height={260}
           >
             <FunnelChart data={funnel ?? null} />
@@ -172,11 +189,7 @@ export default async function DashboardOverviewPage({ searchParams }: PageProps)
 
           <ChartCard
             title="Disposition breakdown"
-            subtitle={
-              filtersActive
-                ? `${dispSubtitle} · filtered by source/UTM`
-                : dispSubtitle
-            }
+            subtitle={dispSubtitle}
             toolbar={<DateRangeFilter currentRange={dispRange} paramPrefix="d" />}
             height={260}
           >
@@ -222,8 +235,6 @@ export default async function DashboardOverviewPage({ searchParams }: PageProps)
 }
 
 // ─── Local presentation helpers ─────────────────────────────────────────────
-// Kept inline because they're only used here. If we ever need them on another
-// page, lift them into components/dashboard/.
 
 function ObjectionsList({
   objections
