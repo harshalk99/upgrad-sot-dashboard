@@ -100,16 +100,33 @@ export async function GET(
   const isPostCutoff =
     callStart !== null && callStart.getTime() >= RECORDING_CLIENT_CUTOFF_UTC.getTime();
 
-  // (a) New calls — Azure-hosted recording. The Azure container's network
-  // rules allow the END USER's office static IP (the dashboard's App Service
-  // IP is NOT allowlisted), so the browser must fetch the blob directly —
-  // we just hand it the URL. JSON instead of a 302 so the frontend can
-  // surface our friendly toast on the auth gate above before wiring audio.
+  // (a) New calls — Azure-hosted recording. PROXY the bytes through this
+  // route so the user's browser never needs to reach Azure directly. The
+  // App Service outbound IPs must be on the storage account's firewall
+  // allowlist for this fetch to succeed (Azure Portal → upgrad-sotm-dashboard
+  // → Properties → Outbound IP Addresses → add each to upgradsotm5037 →
+  // Networking → Firewalls and virtual networks).
   if (isPostCutoff) {
-    return NextResponse.json(
-      { url: `${AZURE_BLOB_BASE}/${encodeURIComponent(call_id)}` },
-      { status: 200, headers: { 'cache-control': 'private, no-store' } }
-    );
+    const blobUrl = `${AZURE_BLOB_BASE}/${encodeURIComponent(call_id)}`;
+    const upstream = await fetch(blobUrl, {
+      headers: req.headers.get('range') ? { Range: req.headers.get('range')! } : {},
+      cache: 'no-store'
+    });
+    if (!upstream.ok || !upstream.body) {
+      return NextResponse.json(
+        { error: `Recording not found (${upstream.status})` },
+        { status: upstream.status === 404 ? 404 : 502 }
+      );
+    }
+    const headers = new Headers();
+    for (const h of ['content-type', 'content-length', 'content-range', 'accept-ranges']) {
+      const v = upstream.headers.get(h);
+      if (v) headers.set(h, v);
+    }
+    if (!headers.has('content-type')) headers.set('content-type', 'audio/mpeg');
+    if (!headers.has('accept-ranges')) headers.set('accept-ranges', 'bytes');
+    headers.set('cache-control', 'private, no-store');
+    return new NextResponse(upstream.body, { status: upstream.status, headers });
   }
 
   // (b) Older calls — admin+ only on the streaming/proxy path. Clients on
