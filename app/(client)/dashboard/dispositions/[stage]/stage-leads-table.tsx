@@ -702,7 +702,22 @@ function RecordingPlayButton({ callId }: { callId: string }) {
   }
 
   if (audioUrl) {
-    return <audio src={audioUrl} controls className="h-7" preload="metadata" />;
+    return (
+      <audio
+        src={audioUrl}
+        controls
+        className="h-7"
+        preload="metadata"
+        onError={() => {
+          toast.error(
+            'Could not load recording — your network may not be authorised to fetch it.'
+          );
+          if (isBlob) URL.revokeObjectURL(audioUrl);
+          setAudioUrl(null);
+          setIsBlob(false);
+        }}
+      />
+    );
   }
   return (
     <button
