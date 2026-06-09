@@ -100,16 +100,32 @@ export async function GET(
   const isPostCutoff =
     callStart !== null && callStart.getTime() >= RECORDING_CLIENT_CUTOFF_UTC.getTime();
 
-  // (a) New calls — Azure-hosted recording, accessible to any authenticated
-  // user that cleared the per-lead gate above. We return the URL as JSON (not
-  // a 302) so the browser can wire it straight into an <audio> element; that
-  // avoids streaming the bytes back through the dashboard and dodges any CORS
-  // issues on a fetch-then-blob path.
+  // (a) New calls — Azure-hosted recording. We PROXY the bytes through this
+  // route. The Azure container's network rules allow the App Service outbound
+  // IP, so the server fetch succeeds; the browser then plays audio from the
+  // dashboard's own origin, sidestepping any CORS / IP / content-type quirks
+  // the <audio> element runs into when it talks to Azure directly.
   if (isPostCutoff) {
-    return NextResponse.json(
-      { url: `${AZURE_BLOB_BASE}/${encodeURIComponent(call_id)}` },
-      { status: 200, headers: { 'cache-control': 'private, no-store' } }
-    );
+    const blobUrl = `${AZURE_BLOB_BASE}/${encodeURIComponent(call_id)}`;
+    const upstream = await fetch(blobUrl, {
+      headers: req.headers.get('range') ? { Range: req.headers.get('range')! } : {},
+      cache: 'no-store'
+    });
+    if (!upstream.ok || !upstream.body) {
+      return NextResponse.json(
+        { error: `Recording not found (${upstream.status})` },
+        { status: upstream.status === 404 ? 404 : 502 }
+      );
+    }
+    const headers = new Headers();
+    for (const h of ['content-type', 'content-length', 'content-range', 'accept-ranges']) {
+      const v = upstream.headers.get(h);
+      if (v) headers.set(h, v);
+    }
+    if (!headers.has('content-type')) headers.set('content-type', 'audio/mpeg');
+    if (!headers.has('accept-ranges')) headers.set('accept-ranges', 'bytes');
+    headers.set('cache-control', 'private, no-store');
+    return new NextResponse(upstream.body, { status: upstream.status, headers });
   }
 
   // (b) Older calls — admin+ only on the streaming/proxy path. Clients on
