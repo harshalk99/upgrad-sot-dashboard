@@ -593,15 +593,12 @@ function LeadDetailPanel({
         )}
         {Array.isArray(summaries) && summaries.length > 0 && (
           <ol className="mt-2 space-y-2.5">
-            {summaries.map((c, i) => (
+            {summaries.map((c) => (
               <li
                 key={c.call_id}
                 className="rounded-md border border-border/60 bg-background p-3 text-xs"
               >
                 <div className="mb-1 flex flex-wrap items-center gap-2">
-                  <span className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
-                    Attempt #{summaries.length - i}
-                  </span>
                   <span className="text-muted-foreground">
                     {c.call_start ? formatDateOnly(c.call_start) : c.attempt_date ?? '—'}
                   </span>

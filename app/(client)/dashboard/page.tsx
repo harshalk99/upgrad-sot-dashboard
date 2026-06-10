@@ -173,7 +173,7 @@ export default async function DashboardOverviewPage({ searchParams }: PageProps)
             threshold={minutesUtilSeverity}
             invert
             icon={Clock}
-            help="Billing cycle runs the 18th of each month to the 17th of the next. The counter resets every 18th. Allocation per WO-DOT-UGSOT-053."
+            help="Billing cycle runs the 8th of each month to the 7th of the next. The counter resets every 8th. Allocation per WO-DOT-UGSOT-053."
           />
         </MetricCardGrid>
 
