@@ -1,15 +1,22 @@
 -- 0025_billing_cycle_8_to_7.sql
 --
--- Voice-minute view, switched to the 8th-of-month → 8th billing cycle (UGSOT
--- amendment 2026-06-09). Same column shape as 0018; only the day-of-month
--- boundary moves AND the usage subquery is now decoupled from the allocation's
--- campaign_id.
+-- Voice-minute view, 8th-of-month → 8th billing cycle (UGSOT amendment
+-- 2026-06-09). Plus two robustness changes after digging into the data:
 --
--- Why decoupled: ingestion has been lagging on rolling campaign_id forward
--- (e.g. Jun 8+ calls were still tagged UGSOT_MAY_2026 while the allocation
--- row was keyed UGSOT_JUN_2026), zeroing out minutes_used. We aggregate
--- minutes for the whole cycle window across all non-Kannada campaigns, and
--- pull the allocation for the cycle's anchor month independently.
+-- 1. Also exclude the UGSOT_JUN_2026 allocation row (it's Kannada-specific,
+--    not the main campaign — clarified by UGSOT 2026-06-11). Joins on the
+--    existing dashboard_excluded_campaigns config.
+--
+-- 2. Decouple allocation lookup from the cycle's anchor month. Ingestion
+--    hasn't been rolling the call_logs.campaign_id forward (Jun 8+ calls
+--    still tagged UGSOT_MAY_2026), and the allocation table doesn't always
+--    get a fresh per-month row. Pick the most-recent non-excluded allocation
+--    row and sum non-excluded minutes in the cycle window. Single-tenant
+--    semantics: one rolling budget for the whole UGSOT campaign.
+
+INSERT INTO public.dashboard_excluded_campaigns (campaign_id, note)
+VALUES ('UGSOT_JUN_2026', 'Kannada batch allocation — UGSOT request 2026-06-11')
+ON CONFLICT (campaign_id) DO NOTHING;
 
 CREATE OR REPLACE VIEW public.v_client_minutes_summary AS
 WITH cycle AS (
@@ -23,8 +30,7 @@ WITH cycle AS (
 bounds AS (
   SELECT
     cycle_start::date                                  AS cycle_start,
-    (cycle_start + INTERVAL '1 month')::date           AS cycle_end,         -- exclusive
-    date_trunc('month', cycle_start)::date             AS allocation_month_key
+    (cycle_start + INTERVAL '1 month')::date           AS cycle_end         -- exclusive
   FROM cycle
 ),
 current_alloc AS (
@@ -33,10 +39,9 @@ current_alloc AS (
     a.allocated_voice_minutes AS allocated_minutes,
     b.cycle_start,
     b.cycle_end
-  FROM bounds b
-  LEFT JOIN dashboard_campaign_allocations a
-    ON a.allocation_month = b.allocation_month_key
-  ORDER BY a.allocated_voice_minutes DESC NULLS LAST
+  FROM bounds b, dashboard_campaign_allocations a
+  WHERE NOT public.is_campaign_dashboard_excluded(a.campaign_id)
+  ORDER BY a.allocation_month DESC, a.allocated_voice_minutes DESC
   LIMIT 1
 ),
 cycle_usage AS (
