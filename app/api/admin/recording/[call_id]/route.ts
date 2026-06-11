@@ -4,9 +4,13 @@
 //
 //   Admin / super_admin   can play any recording on any call.
 //   Client                can play a recording only if BOTH:
-//                           1. the call's lead is Hot, Warm, or CB Later
-//                              (AI Bot Qualified - High Intent | - Warm |
-//                               AI Bot Reached - CB Later), AND
+//                           1. the call's lead is in an engaged stage —
+//                                AI Bot Qualified - High Intent
+//                                AI Bot Qualified - Warm
+//                                AI Bot Reached - CB Later
+//                                AI Bot Sent - Brochure
+//                                AI Bot Sent - Payment Link
+//                              AND
 //                           2. the call is on/after RECORDING_CLIENT_CUTOFF
 //                              (2026-06-07 IST — when the platform started
 //                              writing copies to the Azure blob container).
@@ -86,7 +90,9 @@ export async function GET(
     const ALLOWED = new Set([
       'AI Bot Qualified - High Intent',
       'AI Bot Qualified - Warm',
-      'AI Bot Reached - CB Later'
+      'AI Bot Reached - CB Later',
+      'AI Bot Sent - Brochure',
+      'AI Bot Sent - Payment Link'
     ]);
     if (!leadStage || !ALLOWED.has(leadStage)) {
       return NextResponse.json(
