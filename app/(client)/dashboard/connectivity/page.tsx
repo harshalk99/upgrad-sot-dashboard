@@ -14,8 +14,10 @@ import {
   getClientConnectivityFilterOptions,
   getClientEngagementBySource,
   getClientEngagementFunnel,
+  listAllowedCampaigns,
   type ConnectivityFilters
 } from '@/lib/queries/client';
+import { resolveCampaignFilter, resolveSourceFilter } from '@/lib/queries/scope';
 import {
   CONNECTIVITY_SHORT_TO_FULL,
   decodeFiltersFromSearchParams
@@ -41,19 +43,26 @@ export const dynamic = 'force-dynamic';
 export default async function ConnectivityPage({ searchParams }: PageProps) {
   // Next 16: searchParams is async.
   const rawParams = await searchParams;
-  const filters = decodeFiltersFromSearchParams(
+  const urlFilters = decodeFiltersFromSearchParams(
     rawParams,
     CONNECTIVITY_SHORT_TO_FULL
   ) as ConnectivityFilters;
 
   const user = (await getCurrentUser())!;
+  const picked = typeof rawParams.c === 'string' ? rawParams.c : undefined;
+  const campaigns = resolveCampaignFilter(user, picked);
+  const scopeArgs = { campaigns, scope: user.sourceScope };
+  // Intersect URL-applied source filter with the user's fixed scope.
+  const filters = resolveSourceFilter(user, urlFilters);
+
   const sb = await createSupabaseServerClient();
 
-  const [funnel, sources, daily, options] = await Promise.all([
-    getClientEngagementFunnel(sb, filters),
-    getClientEngagementBySource(sb, filters),
-    getClientConnectivityDaily(sb, filters),
-    getClientConnectivityFilterOptions(sb)
+  const [funnel, sources, daily, options, campaignOptions] = await Promise.all([
+    getClientEngagementFunnel(sb, scopeArgs, filters),
+    getClientEngagementBySource(sb, scopeArgs, filters),
+    getClientConnectivityDaily(sb, scopeArgs, filters),
+    getClientConnectivityFilterOptions(sb, scopeArgs),
+    listAllowedCampaigns(sb, scopeArgs)
   ]);
 
   const connectRate =
@@ -87,6 +96,9 @@ export default async function ConnectivityPage({ searchParams }: PageProps) {
         title="Connectivity"
         subtitle="How many customers we reached and meaningfully connected with."
         toolbar={<RefreshButton />}
+        campaignOptions={campaignOptions}
+        currentCampaign={picked ?? null}
+        allowAggregate={user.role === 'super_admin'}
       />
       <div className="space-y-6 p-6">
         <ConnectivityFilterBar options={options} currentFilters={filters} />

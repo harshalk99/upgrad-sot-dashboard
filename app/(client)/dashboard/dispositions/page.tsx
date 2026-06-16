@@ -6,7 +6,8 @@
 import { format as formatDate } from 'date-fns';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
 import { getCurrentUser } from '@/lib/auth/getUser';
-import { getClientDispositionBreakdown } from '@/lib/queries/client';
+import { getClientDispositionBreakdown, listAllowedCampaigns } from '@/lib/queries/client';
+import { resolveCampaignFilter, resolveSourceFilter } from '@/lib/queries/scope';
 import { decodeDateRange, encodeDateRange, hasDateRange } from '@/lib/url-filters';
 import { Header } from '@/components/layout/Header';
 import { RefreshButton } from '@/components/layout/RefreshButton';
@@ -26,13 +27,27 @@ export default async function DispositionsPage({ searchParams }: PageProps) {
   const range = decodeDateRange(rawParams, 'd');
 
   const user = (await getCurrentUser())!;
+  const picked = typeof rawParams.c === 'string' ? rawParams.c : undefined;
+  const campaigns = resolveCampaignFilter(user, picked);
+  const scopeArgs = { campaigns, scope: user.sourceScope };
+  const filters = resolveSourceFilter(user, undefined);
+
   const sb = await createSupabaseServerClient();
-  const dispositions = await getClientDispositionBreakdown(sb, range);
+  const [dispositions, campaignOptions] = await Promise.all([
+    getClientDispositionBreakdown(sb, range, scopeArgs, filters),
+    listAllowedCampaigns(sb, scopeArgs)
+  ]);
   const donutShape = dispositions.map((d) => ({ lead_stage: d.stage, lead_count: d.count }));
 
   const subtitle = hasDateRange(range)
     ? `Filtered: ${range.from ? formatDate(new Date(range.from), 'd MMM') : '…'} – ${range.to ? formatDate(new Date(range.to), 'd MMM yyyy') : '…'} · by last call`
     : 'Where every lead ends up. Click a stage to view the leads and their call summaries.';
+
+  const preserveQuery = (() => {
+    const p = encodeDateRange(range, 'd');
+    if (picked) p.set('c', picked);
+    return p.toString() || undefined;
+  })();
 
   return (
     <>
@@ -49,11 +64,14 @@ export default async function DispositionsPage({ searchParams }: PageProps) {
             <RefreshButton />
           </div>
         }
+        campaignOptions={campaignOptions}
+        currentCampaign={picked ?? null}
+        allowAggregate={user.role === 'super_admin'}
       />
       <div className="space-y-6 p-6">
         <ChartCard
           title="Disposition Mix"
-          subtitle={hasDateRange(range) ? 'Within selected range' : 'All-time, all campaigns'}
+          subtitle={hasDateRange(range) ? 'Within selected range' : 'All-time'}
           height={320}
         >
           <DispositionDonut data={donutShape} />
@@ -66,7 +84,7 @@ export default async function DispositionsPage({ searchParams }: PageProps) {
           <StageBreakdownGrid
             dispositions={dispositions}
             columns={2}
-            preserveQuery={encodeDateRange(range, 'd').toString() || undefined}
+            preserveQuery={preserveQuery}
           />
         </section>
       </div>

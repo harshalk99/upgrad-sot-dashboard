@@ -7,7 +7,8 @@ import { ArrowLeft } from 'lucide-react';
 import { format as formatDate } from 'date-fns';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
 import { getCurrentUser } from '@/lib/auth/getUser';
-import { getClientLeadsByStage } from '@/lib/queries/client';
+import { getClientLeadsByStage, listAllowedCampaigns } from '@/lib/queries/client';
+import { resolveCampaignFilter } from '@/lib/queries/scope';
 import { stageFromSlug, stageMeta } from '@/lib/lead-stages';
 import {
   decodeDateRange,
@@ -34,12 +35,21 @@ export default async function DispositionStagePage({ params, searchParams }: Pag
   const range = decodeDateRange(rawParams, 'd');
 
   const user = (await getCurrentUser())!;
+  const picked = typeof rawParams.c === 'string' ? rawParams.c : undefined;
+  const campaigns = resolveCampaignFilter(user, picked);
+  const scopeArgs = { campaigns, scope: user.sourceScope };
+
   const sb = await createSupabaseServerClient();
-  const leads = await getClientLeadsByStage(sb, stage, range);
+  const [leads, campaignOptions] = await Promise.all([
+    getClientLeadsByStage(sb, stage, range, scopeArgs),
+    listAllowedCampaigns(sb, scopeArgs)
+  ]);
   const meta = stageMeta(stage);
 
-  // Preserve any date filter on the back-link.
-  const backQs = encodeDateRange(range, 'd').toString();
+  // Preserve date + campaign on the back-link.
+  const backParams = encodeDateRange(range, 'd');
+  if (picked) backParams.set('c', picked);
+  const backQs = backParams.toString();
   const backHref = backQs ? `/dashboard/dispositions?${backQs}` : '/dashboard/dispositions';
 
   const subtitle = hasDateRange(range)
@@ -61,6 +71,9 @@ export default async function DispositionStagePage({ params, searchParams }: Pag
             <RefreshButton />
           </div>
         }
+        campaignOptions={campaignOptions}
+        currentCampaign={picked ?? null}
+        allowAggregate={user.role === 'super_admin'}
       />
 
       <div className="space-y-4 p-6">

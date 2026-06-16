@@ -54,7 +54,7 @@ import { LeadStageDropdown } from '@/components/admin/LeadStageDropdown';
 type Props = {
   leads: ClientLeadRow[];
   stage: string;
-  userRole?: 'client' | 'admin' | 'super_admin';
+  userRole?: import('@/lib/auth/userRole').UserRole;
 };
 
 function escapeCsv(v: unknown): string {

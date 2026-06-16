@@ -1,8 +1,11 @@
 // Role utilities. SPEC.md §2 — exact role names matter (lowercase, underscore).
-export type UserRole = 'client' | 'admin' | 'super_admin';
+// digital_partner is a flavour of client — same client UI, scoped to a subset
+// of data_source_name values via dashboard_user_source_scopes.
+export type UserRole = 'client' | 'digital_partner' | 'admin' | 'super_admin';
 
 export const ROLE_HIERARCHY: Record<UserRole, number> = {
   client: 1,
+  digital_partner: 1,
   admin: 2,
   super_admin: 3
 };
@@ -19,6 +22,7 @@ export function defaultLandingForRole(role: UserRole): string {
     case 'admin':
       return '/admin';
     case 'client':
+    case 'digital_partner':
     default:
       return '/dashboard';
   }

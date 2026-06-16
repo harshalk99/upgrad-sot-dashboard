@@ -1,6 +1,8 @@
-// Header — page title bar, sits above content, contains the UserMenu on the right.
+// Header — page title bar, sits above content, contains the optional
+// CampaignSwitcher + page toolbar + UserMenu on the right.
 import type { ReactNode } from 'react';
 import { UserMenu } from './UserMenu';
+import { CampaignSwitcher, type CampaignOption } from './CampaignSwitcher';
 import type { UserRole } from '@/lib/auth/userRole';
 
 type Props = {
@@ -12,9 +14,24 @@ type Props = {
   title: string;
   subtitle?: ReactNode;
   toolbar?: ReactNode;
+  /** Campaigns the current user can pick from. Omit to hide the switcher entirely. */
+  campaignOptions?: CampaignOption[];
+  currentCampaign?: string | null;
+  allowAggregate?: boolean;
 };
 
-export function Header({ email, role, displayName, context, title, subtitle, toolbar }: Props) {
+export function Header({
+  email,
+  role,
+  displayName,
+  context,
+  title,
+  subtitle,
+  toolbar,
+  campaignOptions,
+  currentCampaign = null,
+  allowAggregate = false
+}: Props) {
   return (
     <header className="flex items-start justify-between gap-4 border-b border-border/60 bg-background/60 px-6 py-4 backdrop-blur">
       <div>
@@ -28,6 +45,13 @@ export function Header({ email, role, displayName, context, title, subtitle, too
       </div>
       <div className="flex items-center gap-2">
         {toolbar}
+        {campaignOptions && (
+          <CampaignSwitcher
+            current={currentCampaign}
+            options={campaignOptions}
+            allowAggregate={allowAggregate}
+          />
+        )}
         <UserMenu email={email} role={role} displayName={displayName} />
       </div>
     </header>

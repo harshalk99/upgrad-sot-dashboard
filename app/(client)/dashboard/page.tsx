@@ -1,12 +1,14 @@
 // Client Overview (SPEC.md §8.1.1).
-// CHANGED (post-Phase-3 by user request):
-//   - Removed Daily-Volume-per-day chart
-//   - Added per-disposition-stage breakdown grid
-//   - Added Source performance + State performance business tables
-//   - Source/UTM filter belongs on the Connectivity page only (NOT here)
-//   - Lead Funnel + Disposition card share ONE date range (?dfrom/?dto)
-//     so the user filters once and both cards re-bucket together
-import { Flame, Heart, Clock, Timer } from 'lucide-react';
+//
+// Multi-campaign tenancy (added 2026-06-12):
+//   - Header CampaignSwitcher writes `?c=<id>`; super_admin defaults to
+//     aggregate (no `?c=`).
+//   - Every query runs with the resolved {campaigns, scope} pair so the same
+//     page serves UGSOT client, super_admin aggregate, single-campaign
+//     drill-in, and digital_partner scoped view.
+//   - Voice Minutes cards (cycle + this month) are hidden for digital_partner.
+
+import { Flame, Heart, Clock, Timer, CalendarRange } from 'lucide-react';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
 import { getCurrentUser } from '@/lib/auth/getUser';
 import {
@@ -15,9 +17,12 @@ import {
   getClientDispositionBreakdown,
   getClientFunnel,
   getClientMinutesSummary,
+  getClientMinutesByCampaignCurrentMonth,
   getClientStatePerformance,
-  getClientTopObjections
+  getClientTopObjections,
+  listAllowedCampaigns
 } from '@/lib/queries/client';
+import { resolveCampaignFilter, resolveSourceFilter } from '@/lib/queries/scope';
 import { formatDuration, formatPct } from '@/lib/formatters';
 import { decodeDateRange, encodeDateRange, hasDateRange } from '@/lib/url-filters';
 import { format as formatDate } from 'date-fns';
@@ -35,12 +40,8 @@ type PageProps = {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 };
 
-// Defensive — search-param changes should always re-render with fresh data.
 export const dynamic = 'force-dynamic';
 
-// All stages that can appear in the disposition breakdown view (v_lead_dispositions_ist
-// already filters out 'Not Yet Called' and NULLs). DNP is excluded only when computing
-// Connected/Engaged/Qualified; it's still part of Attempted.
 const STAGE_DNP = 'AI Bot Reached - DNP';
 const STAGE_HOT = 'AI Bot Qualified - High Intent';
 const STAGE_WARM = 'AI Bot Qualified - Warm';
@@ -51,10 +52,6 @@ const ENGAGED_STAGES = new Set([
   STAGE_HOT, STAGE_WARM, STAGE_CB_LATER, STAGE_NOT_INTERESTED, STAGE_NOT_ELIGIBLE
 ]);
 
-/** Derive the same 4-stage funnel shape from a date-bucketed disposition breakdown.
- *  Each row in `dispositions` is { stage, count } for leads whose last_called_at
- *  fell inside the chosen window — so summing across them gives a date-filtered
- *  funnel that uses the same bucketing rule the Disposition card uses. */
 function deriveFunnelFromDispositions(rows: { stage: string; count: number }[]) {
   const get = (s: string) => rows.find((r) => r.stage === s)?.count ?? 0;
   const total = rows.reduce((acc, r) => acc + r.count, 0);
@@ -79,34 +76,43 @@ function deriveFunnelFromDispositions(rows: { stage: string; count: number }[]) 
 
 export default async function DashboardOverviewPage({ searchParams }: PageProps) {
   const rawParams = await searchParams;
-  // Single shared date range on the Overview — controls BOTH the Lead Funnel
-  // and the Disposition breakdown card. Same bucketing rule as the dispositions
-  // page: by last_called_at IST.
   const dispRange = decodeDateRange(rawParams, 'd');
   const dateActive = hasDateRange(dispRange);
 
   const user = (await getCurrentUser())!;
+  const picked = typeof rawParams.c === 'string' ? rawParams.c : undefined;
+  const campaigns = resolveCampaignFilter(user, picked);
+  const scopeArgs = { campaigns, scope: user.sourceScope };
+  // No source/UTM filter on Overview — but apply digital_partner scope here
+  // by passing it via scope.scope.
+  const filtersForOverview = resolveSourceFilter(user, undefined);
+
   const sb = await createSupabaseServerClient();
 
-  const [funnelAllTime, dispositions, minutes, states, avgCall, objections, depth] =
+  const showMinutesCards = user.role !== 'digital_partner';
+
+  const [funnelAllTime, dispositions, minutes, minutesByCampaign, states, avgCall, objections, depth, campaignOptions] =
     await Promise.all([
-      getClientFunnel(sb),
-      getClientDispositionBreakdown(sb, dispRange),
-      getClientMinutesSummary(sb),
-      getClientStatePerformance(sb),
-      getClientAvgCallDuration(sb),
-      getClientTopObjections(sb, 10),
-      getClientConversationDepth(sb)
+      getClientFunnel(sb, scopeArgs, filtersForOverview),
+      getClientDispositionBreakdown(sb, dispRange, scopeArgs, filtersForOverview),
+      showMinutesCards ? getClientMinutesSummary(sb, scopeArgs) : Promise.resolve(null),
+      showMinutesCards
+        ? getClientMinutesByCampaignCurrentMonth(sb, scopeArgs)
+        : Promise.resolve([]),
+      getClientStatePerformance(sb, scopeArgs),
+      getClientAvgCallDuration(sb, scopeArgs),
+      getClientTopObjections(sb, scopeArgs, 10),
+      getClientConversationDepth(sb, scopeArgs),
+      listAllowedCampaigns(sb, scopeArgs)
     ]);
 
-  // When a date filter is active, the funnel is derived from the date-bucketed
-  // disposition breakdown (same rows used by the right-hand card). When not,
-  // we render the cheap pre-aggregated lifetime view.
-  const funnel = dateActive
-    ? deriveFunnelFromDispositions(dispositions)
-    : funnelAllTime;
+  const funnel = dateActive ? deriveFunnelFromDispositions(dispositions) : funnelAllTime;
 
-  const preserveQuery = encodeDateRange(dispRange, 'd').toString() || undefined;
+  const preserveQuery = (() => {
+    const p = encodeDateRange(dispRange, 'd');
+    if (picked) p.set('c', picked);
+    return p.toString() || undefined;
+  })();
 
   const dispSubtitle = dateActive
     ? `Filtered: ${dispRange.from ? formatDate(new Date(dispRange.from), 'd MMM') : '…'} – ${dispRange.to ? formatDate(new Date(dispRange.to), 'd MMM yyyy') : '…'} (by last call)`
@@ -136,20 +142,33 @@ export default async function DashboardOverviewPage({ searchParams }: PageProps)
     qualPct: Number(s.qualification_rate_pct ?? 0)
   }));
 
+  const monthTotalMinutes = minutesByCampaign.reduce((acc, r) => acc + (r.minutes_used ?? 0), 0);
+  const contextLabel =
+    user.role === 'super_admin'
+      ? 'Predixion · Strategic View'
+      : user.role === 'admin'
+      ? 'Predixion · Operations View'
+      : user.role === 'digital_partner'
+      ? `${user.displayName ?? 'Digital Partner'} · Scoped View`
+      : 'UGSOT · Client View';
+
   return (
     <>
       <Header
         email={user.email ?? ''}
         role={user.role}
         displayName={user.displayName}
-        context="UGSOT · Client View"
+        context={contextLabel}
         title="Overview"
         subtitle="Campaign performance at a glance."
         toolbar={<RefreshButton />}
+        campaignOptions={campaignOptions}
+        currentCampaign={picked ?? null}
+        allowAggregate={user.role === 'super_admin'}
       />
 
       <div className="space-y-6 p-6">
-        <MetricCardGrid cols={5}>
+        <MetricCardGrid cols={showMinutesCards ? 6 : 4}>
           <MetricCard title="Hot Leads" value={funnel?.hot ?? 0} icon={Flame} />
           <MetricCard title="Warm Leads" value={funnel?.warm ?? 0} icon={Heart} />
           <MetricCard
@@ -162,19 +181,39 @@ export default async function DashboardOverviewPage({ searchParams }: PageProps)
             value={`${connectRate}%`}
             subtitle={`${(funnel?.connected ?? 0).toLocaleString('en-IN')} / ${(funnel?.attempted ?? 0).toLocaleString('en-IN')}`}
           />
-          <MetricCard
-            title="Voice Minutes (Cycle)"
-            value={`${minutes?.minutes_used ?? 0}`}
-            subtitle={
-              minutes?.billing_cycle_start && minutes?.billing_cycle_end
-                ? `${formatPct(minutes.utilization_pct)} of ${minutes.allocated_minutes ?? 0} · ${formatDate(new Date(minutes.billing_cycle_start), 'd MMM')} – ${formatDate(new Date(new Date(minutes.billing_cycle_end).getTime() - 86_400_000), 'd MMM')}`
-                : `${formatPct(minutes?.utilization_pct)} of ${minutes?.allocated_minutes ?? 0}`
-            }
-            threshold={minutesUtilSeverity}
-            invert
-            icon={Clock}
-            help="Billing cycle runs the 8th of each month to the 7th of the next. The counter resets every 8th. Allocation per WO-DOT-UGSOT-053."
-          />
+          {showMinutesCards && (
+            <>
+              <MetricCard
+                title="Voice Minutes (Cycle)"
+                value={`${minutes?.minutes_used ?? 0}`}
+                subtitle={
+                  minutes?.billing_cycle_start && minutes?.billing_cycle_end
+                    ? `${formatPct(minutes.utilization_pct)} of ${minutes.allocated_minutes ?? 0} · ${formatDate(new Date(minutes.billing_cycle_start), 'd MMM')} – ${formatDate(new Date(new Date(minutes.billing_cycle_end).getTime() - 86_400_000), 'd MMM')}`
+                    : `${formatPct(minutes?.utilization_pct)} of ${minutes?.allocated_minutes ?? 0}`
+                }
+                threshold={minutesUtilSeverity}
+                invert
+                icon={Clock}
+                help="Billing cycle runs the 8th of each month to the 7th of the next. The counter resets every 8th. Allocation per WO-DOT-UGSOT-053."
+              />
+              <MetricCard
+                title="Voice Minutes (This Month)"
+                value={monthTotalMinutes.toLocaleString('en-IN')}
+                subtitle={
+                  minutesByCampaign.length === 0
+                    ? 'No usage this calendar month'
+                    : minutesByCampaign
+                        .slice(0, 3)
+                        .map((r) => `${r.display_name}: ${r.minutes_used.toLocaleString('en-IN')}`)
+                        .join(' · ')
+                }
+                icon={CalendarRange}
+                help={
+                  'Total voice-minute usage from the 1st of the calendar month (IST) to today, across every campaign you can see. Breakup lists each campaign by name.'
+                }
+              />
+            </>
+          )}
         </MetricCardGrid>
 
         <div className="grid gap-4 lg:grid-cols-2">
@@ -234,8 +273,6 @@ export default async function DashboardOverviewPage({ searchParams }: PageProps)
   );
 }
 
-// ─── Local presentation helpers ─────────────────────────────────────────────
-
 function ObjectionsList({
   objections
 }: {
@@ -258,10 +295,7 @@ function ObjectionsList({
           </div>
           <span className="font-mono tabular-nums text-muted-foreground">{o.count}</span>
           <div className="col-span-2 h-1.5 overflow-hidden rounded-full bg-muted">
-            <div
-              className="h-full bg-amber-500"
-              style={{ width: `${(o.count / max) * 100}%` }}
-            />
+            <div className="h-full bg-amber-500" style={{ width: `${(o.count / max) * 100}%` }} />
           </div>
         </li>
       ))}

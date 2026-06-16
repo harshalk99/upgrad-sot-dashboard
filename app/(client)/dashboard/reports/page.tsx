@@ -5,22 +5,38 @@ import { FileSpreadsheet } from 'lucide-react';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
 import { getCurrentUser } from '@/lib/auth/getUser';
 import {
-  getClientDispositions,
+  getClientDispositionBreakdown,
   getClientFunnel,
-  getClientHotWarmLeads
+  getClientHotWarmLeads,
+  listAllowedCampaigns
 } from '@/lib/queries/client';
+import { resolveCampaignFilter } from '@/lib/queries/scope';
 import { Header } from '@/components/layout/Header';
 import { RefreshButton } from '@/components/layout/RefreshButton';
 import { ReportsActions } from './reports-actions';
 
-export default async function ReportsPage() {
+type PageProps = {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+};
+
+export const dynamic = 'force-dynamic';
+
+export default async function ReportsPage({ searchParams }: PageProps) {
+  const rawParams = await searchParams;
   const user = (await getCurrentUser())!;
+  const picked = typeof rawParams.c === 'string' ? rawParams.c : undefined;
+  const campaigns = resolveCampaignFilter(user, picked);
+  const scopeArgs = { campaigns, scope: user.sourceScope };
+
   const sb = await createSupabaseServerClient();
-  const [funnel, dispositions, leads] = await Promise.all([
-    getClientFunnel(sb),
-    getClientDispositions(sb),
-    getClientHotWarmLeads(sb)
+  const [funnel, dispositionRows, leads, campaignOptions] = await Promise.all([
+    getClientFunnel(sb, scopeArgs),
+    getClientDispositionBreakdown(sb, undefined, scopeArgs),
+    getClientHotWarmLeads(sb, scopeArgs),
+    listAllowedCampaigns(sb, scopeArgs)
   ]);
+  // Reports component expects {lead_stage, lead_count} shape — adapt.
+  const dispositions = dispositionRows.map((d) => ({ lead_stage: d.stage, lead_count: d.count }));
 
   return (
     <>
@@ -32,6 +48,9 @@ export default async function ReportsPage() {
         title="Reports"
         subtitle="Snapshot exports of campaign data. PDF + scheduled reports land in Phase 8."
         toolbar={<RefreshButton />}
+        campaignOptions={campaignOptions}
+        currentCampaign={picked ?? null}
+        allowAggregate={user.role === 'super_admin'}
       />
       <div className="p-6">
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">

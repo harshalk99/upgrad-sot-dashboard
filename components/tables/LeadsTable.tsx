@@ -118,7 +118,7 @@ export function LeadsTable({
 }: {
   data: HotWarmLeadRow[];
   /** Required so we know whether to show the manual stage-override dropdown. */
-  userRole?: 'client' | 'admin' | 'super_admin';
+  userRole?: import('@/lib/auth/userRole').UserRole;
 }) {
   const isSuperAdmin = userRole === 'super_admin';
   const [sorting, setSorting] = useState<SortingState>([{ id: 'lead_stage', desc: false }]);
