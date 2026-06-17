@@ -8,9 +8,13 @@ import type { ConnectivityFilters } from '@/lib/queries/client';
 /** Compute the campaign filter the user is allowed to ask for.
  *  - super_admin without a pick → null (= all non-excluded campaigns, aggregate).
  *  - super_admin with a pick → [picked] (narrow to one).
- *  - client / digital_partner → their campaignScope; if `picked` is outside
- *    that scope, ignore and fall back to the full scope (never widen).
- *  - client without any scope row → empty array (deny-by-default).
+ *  - client / digital_partner WITH a scope row → that scope; if `picked` is
+ *    outside the scope, fall back to the full scope (never widen).
+ *  - client / digital_partner WITHOUT a scope row → null (treat as "all non-
+ *    excluded", same as the pre-multi-campaign behaviour). This keeps legacy
+ *    client users working without forcing an explicit seed. Digital partners
+ *    are always seeded with an explicit row, so this fallback never weakens
+ *    their gating.
  */
 export function resolveCampaignFilter(
   user: CurrentUser,
@@ -19,8 +23,12 @@ export function resolveCampaignFilter(
   if (user.role === 'super_admin') {
     return picked ? [picked] : null;
   }
-  const scope = user.campaignScope ?? [];
-  if (scope.length === 0) return [];
+  const scope = user.campaignScope;
+  if (!scope || scope.length === 0) {
+    // No explicit campaign scope → unrestricted (Kannada etc. still excluded
+    // by dashboard_excluded_campaigns at the RPC layer).
+    return picked ? [picked] : null;
+  }
   if (!picked) return scope;
   return scope.includes(picked) ? [picked] : scope;
 }
