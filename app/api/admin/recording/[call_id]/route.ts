@@ -1,19 +1,25 @@
 // Recording proxy. SPEC.md §8.2.2 + §10.2.
 //
-// Access rules:
+// Access rules (clients):
 //
-//   Admin / super_admin   can play any recording on any call.
-//   Client                can play a recording only if BOTH:
-//                           1. the call's lead is in an engaged stage —
-//                                AI Bot Qualified - High Intent
-//                                AI Bot Qualified - Warm
-//                                AI Bot Reached - CB Later
-//                                AI Bot Sent - Brochure
-//                                AI Bot Sent - Payment Link
-//                              AND
-//                           2. the call is on/after RECORDING_CLIENT_CUTOFF
-//                              (2026-06-07 IST — when the platform started
-//                              writing copies to the Azure blob container).
+//   * Call must be on/after RECORDING_CLIENT_CUTOFF (2026-06-07 IST — when
+//     the platform started writing copies to the Azure blob container).
+//
+//   * AND the call's lead must be in an allowed stage. Two tiers:
+//
+//       BASE  (effective from 2026-06-07):
+//         AI Bot Qualified - High Intent
+//         AI Bot Qualified - Warm
+//         AI Bot Reached - CB Later
+//         AI Bot Sent - Brochure
+//         AI Bot Sent - Payment Link
+//
+//       EXTENDED  (added 2026-06-15) — only for calls on/after that date:
+//         AI Bot Called - Not Interested
+//         AI Bot Called - Not Eligible
+//         AI Bot Qualified - Low Interest
+//
+// Admin / super_admin: can play any recording, any time, any stage.
 //
 // Delivery paths:
 //
@@ -32,9 +38,24 @@ import { createSupabaseServerClient } from '@/lib/supabase/server';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-// Cutoff at 2026-06-07 00:00 IST. Stored as UTC for direct comparison with
-// timestamptz columns (Asia/Kolkata = UTC+05:30, so 06-07 00:00 IST = 06-06 18:30 UTC).
-const RECORDING_CLIENT_CUTOFF_UTC = new Date('2026-06-06T18:30:00Z');
+// Cutoffs in UTC for direct comparison with timestamptz columns
+// (Asia/Kolkata = UTC+05:30, so e.g. 06-07 00:00 IST = 06-06 18:30 UTC).
+const RECORDING_CLIENT_CUTOFF_UTC = new Date('2026-06-06T18:30:00Z');     // 2026-06-07 IST
+const RECORDING_EXTENDED_STAGES_CUTOFF_UTC = new Date('2026-06-14T18:30:00Z'); // 2026-06-15 IST
+
+const STAGES_BASE = [
+  'AI Bot Qualified - High Intent',
+  'AI Bot Qualified - Warm',
+  'AI Bot Reached - CB Later',
+  'AI Bot Sent - Brochure',
+  'AI Bot Sent - Payment Link'
+] as const;
+
+const STAGES_EXTENDED_ONLY = [
+  'AI Bot Called - Not Interested',
+  'AI Bot Called - Not Eligible',
+  'AI Bot Qualified - Low Interest'
+] as const;
 
 const AZURE_BLOB_BASE =
   'https://upgradsotm5037.blob.core.windows.net/campaign-recordings';
@@ -66,10 +87,10 @@ export async function GET(
   }
 
   const isAdmin = roleHasAtLeast(user.role, 'admin');
+  const callStartMs = row.call_start ? new Date(row.call_start as string).getTime() : null;
 
-  // For clients, recording playback is gated to high-intent leads (Hot/Warm)
-  // only — we don't surface call audio for DNP / Not Interested / etc. Admins
-  // bypass this restriction.
+  // For clients, recording playback is gated by (date, lead_stage). The
+  // allowed stage set widens for calls on/after RECORDING_EXTENDED_STAGES_CUTOFF.
   if (!isAdmin) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const sbAny = sb as any;
@@ -87,13 +108,12 @@ export async function GET(
     ]);
     const leadStage: string | null =
       activeRes?.data?.lead_stage ?? archivedRes?.data?.lead_stage ?? null;
-    const ALLOWED = new Set([
-      'AI Bot Qualified - High Intent',
-      'AI Bot Qualified - Warm',
-      'AI Bot Reached - CB Later',
-      'AI Bot Sent - Brochure',
-      'AI Bot Sent - Payment Link'
-    ]);
+    const isExtendedEra =
+      callStartMs !== null &&
+      callStartMs >= RECORDING_EXTENDED_STAGES_CUTOFF_UTC.getTime();
+    const ALLOWED = new Set<string>(
+      isExtendedEra ? [...STAGES_BASE, ...STAGES_EXTENDED_ONLY] : STAGES_BASE
+    );
     if (!leadStage || !ALLOWED.has(leadStage)) {
       return NextResponse.json(
         { error: 'Recording playback is restricted to authorised users.' },
@@ -102,9 +122,8 @@ export async function GET(
     }
   }
 
-  const callStart = row.call_start ? new Date(row.call_start as string) : null;
   const isPostCutoff =
-    callStart !== null && callStart.getTime() >= RECORDING_CLIENT_CUTOFF_UTC.getTime();
+    callStartMs !== null && callStartMs >= RECORDING_CLIENT_CUTOFF_UTC.getTime();
 
   // (a) New calls — Azure-hosted recording. PROXY the bytes through this
   // route so the user's browser never needs to reach Azure directly. The
