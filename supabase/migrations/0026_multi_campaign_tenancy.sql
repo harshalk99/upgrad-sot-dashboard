@@ -59,6 +59,13 @@ INSERT INTO public.dashboard_user_campaigns (user_id, campaign_id)
 SELECT id, 'UGSOT_MAY_2026' FROM auth.users WHERE email = 'admin@maxxsocialwelfare.org'
 ON CONFLICT DO NOTHING;
 
+-- 0001 added a CHECK constraint that only allows ('client','admin','super_admin').
+-- Widen to include 'digital_partner' so the new role rows pass validation.
+ALTER TABLE public.dashboard_user_roles DROP CONSTRAINT IF EXISTS dashboard_user_roles_role_check;
+ALTER TABLE public.dashboard_user_roles
+  ADD CONSTRAINT dashboard_user_roles_role_check
+  CHECK (role = ANY (ARRAY['client','digital_partner','admin','super_admin']));
+
 -- The full bodies of:
 --   client_funnel_filtered, client_dispositions_filtered,
 --   client_engagement_funnel_filtered, client_engagement_by_source_filtered,
