@@ -8,6 +8,7 @@ import {
   FileText,
   Heart,
   Phone,
+  PhoneCall,
   ShieldCheck,
   ArrowLeftRight,
   Megaphone,
@@ -42,6 +43,7 @@ export const NAV_ITEMS: NavItem[] = [
   { module_key: 'hot_warm_leads',          label: 'Hot & Warm Leads',   href: '/dashboard/leads',             icon: Flame,           roles: ['client','admin','super_admin'], group: 'business' },
   // Minutes Used removed per UGSOT request 2026-05-23 — client should not see call-duration aggregates.
   { module_key: 'reports',                 label: 'Reports',            href: '/dashboard/reports',           icon: FileText,        roles: ['client','admin','super_admin'], group: 'business' },
+  { module_key: 'connected_calls',         label: 'Connected Calls',    href: '/dashboard/connected-calls',   icon: PhoneCall,       roles: ['client','admin','super_admin'], group: 'business' },
 
   // Operations (admin + super_admin)
   { module_key: 'realtime_health',         label: 'Real-time Health',   href: '/admin',                       icon: Heart,           roles: ['admin','super_admin'], group: 'operations' },

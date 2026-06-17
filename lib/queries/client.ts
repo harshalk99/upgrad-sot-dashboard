@@ -424,6 +424,48 @@ export async function getClientConnectivityDaily(
   return (data ?? []) as ConnectivityDailyRow[];
 }
 
+// ─── Connected calls (billing audit) ───────────────────────────────────────
+
+export type ConnectedCallRow = {
+  ls_prospect_id: string;
+  call_start: string;        // timestamptz ISO
+  duration_seconds: number;
+  campaign_id: string;
+};
+
+export async function getClientConnectedCalls(
+  sb: SB,
+  range: DispositionDateRange | undefined,
+  scope: ScopeArgs,
+  opts: { offset?: number; limit?: number } = {}
+): Promise<ConnectedCallRow[]> {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data } = await (sb as any).rpc('client_connected_calls', {
+    p_from: range?.from ?? null,
+    p_to: range?.to ?? null,
+    p_campaign_id: scope.campaigns,
+    p_data_source_name: scope.scope ?? null,
+    p_offset: opts.offset ?? 0,
+    p_limit: opts.limit ?? 50000
+  });
+  return (data ?? []) as ConnectedCallRow[];
+}
+
+export async function getClientConnectedCallsCount(
+  sb: SB,
+  range: DispositionDateRange | undefined,
+  scope: ScopeArgs
+): Promise<number> {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data } = await (sb as any).rpc('client_connected_calls_count', {
+    p_from: range?.from ?? null,
+    p_to: range?.to ?? null,
+    p_campaign_id: scope.campaigns,
+    p_data_source_name: scope.scope ?? null
+  });
+  return Number(data ?? 0);
+}
+
 // ─── Campaign registry (for the header dropdown) ───────────────────────────
 
 export type CampaignVisibility = 'all' | 'coming_soon';
