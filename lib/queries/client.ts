@@ -426,24 +426,35 @@ export async function getClientConnectivityDaily(
 
 // ─── Campaign registry (for the header dropdown) ───────────────────────────
 
-export type DashboardCampaign = { campaign_id: string; display_name: string };
+export type CampaignVisibility = 'all' | 'coming_soon';
+export type DashboardCampaign = {
+  campaign_id: string;
+  display_name: string;
+  visibility: CampaignVisibility;
+};
 
+/** Campaigns to surface in the header dropdown.
+ *
+ *  super_admin (scope.campaigns === null): every active campaign.
+ *  Others: union of the user's explicit `dashboard_user_campaigns` scope AND
+ *  every `visibility='coming_soon'` campaign. The coming-soon ones are visible
+ *  in the dropdown but render a placeholder when picked (see ComingSoonView).
+ */
 export async function listAllowedCampaigns(
   sb: SB,
   scope: ScopeArgs
 ): Promise<DashboardCampaign[]> {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  let q = (sb as any)
+  const { data } = await (sb as any)
     .from('dashboard_campaigns')
-    .select('campaign_id, display_name')
+    .select('campaign_id, display_name, visibility')
     .eq('is_active', true)
-    .order('display_name');
-  if (scope.campaigns !== null && Array.isArray(scope.campaigns) && scope.campaigns.length > 0) {
-    q = q.in('campaign_id', scope.campaigns);
-  } else if (scope.campaigns !== null) {
-    // empty array = deny → returns nothing
-    return [];
-  }
-  const { data } = await q;
-  return (data ?? []) as DashboardCampaign[];
+    .order('visibility', { ascending: true })
+    .order('display_name', { ascending: true });
+  const all = (data ?? []) as DashboardCampaign[];
+  if (scope.campaigns === null) return all; // super_admin sees everything
+  const allowed = new Set(scope.campaigns);
+  return all.filter(
+    (c) => allowed.has(c.campaign_id) || c.visibility === 'coming_soon'
+  );
 }

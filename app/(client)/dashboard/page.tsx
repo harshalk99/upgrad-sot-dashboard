@@ -22,7 +22,8 @@ import {
   getClientTopObjections,
   listAllowedCampaigns
 } from '@/lib/queries/client';
-import { resolveCampaignFilter, resolveSourceFilter } from '@/lib/queries/scope';
+import { getComingSoonCampaign, resolveCampaignFilter, resolveSourceFilter } from '@/lib/queries/scope';
+import { ComingSoonView } from '@/components/dashboard/ComingSoonView';
 import { formatDuration, formatPct } from '@/lib/formatters';
 import { decodeDateRange, encodeDateRange, hasDateRange } from '@/lib/url-filters';
 import { format as formatDate } from 'date-fns';
@@ -89,9 +90,37 @@ export default async function DashboardOverviewPage({ searchParams }: PageProps)
 
   const sb = await createSupabaseServerClient();
 
+  // Resolve campaign options first so we can short-circuit on coming-soon picks
+  // before kicking off the heavier data queries.
+  const campaignOptions = await listAllowedCampaigns(sb, scopeArgs);
+  const comingSoon = getComingSoonCampaign(user, picked, campaignOptions);
+  if (comingSoon) {
+    const contextLabel =
+      user.role === 'digital_partner'
+        ? `${user.displayName ?? 'Digital Partner'} · Scoped View`
+        : 'UGSOT · Client View';
+    return (
+      <>
+        <Header
+          email={user.email ?? ''}
+          role={user.role}
+          displayName={user.displayName}
+          context={contextLabel}
+          title="Overview"
+          subtitle="Campaign performance at a glance."
+          toolbar={<RefreshButton />}
+          campaignOptions={campaignOptions}
+          currentCampaign={picked ?? null}
+          allowAggregate={false}
+        />
+        <ComingSoonView campaignDisplayName={comingSoon.display_name} />
+      </>
+    );
+  }
+
   const showMinutesCards = user.role !== 'digital_partner';
 
-  const [funnelAllTime, dispositions, minutes, minutesByCampaign, states, avgCall, objections, depth, campaignOptions] =
+  const [funnelAllTime, dispositions, minutes, minutesByCampaign, states, avgCall, objections, depth] =
     await Promise.all([
       getClientFunnel(sb, scopeArgs, filtersForOverview),
       getClientDispositionBreakdown(sb, dispRange, scopeArgs, filtersForOverview),
@@ -102,8 +131,7 @@ export default async function DashboardOverviewPage({ searchParams }: PageProps)
       getClientStatePerformance(sb, scopeArgs),
       getClientAvgCallDuration(sb, scopeArgs),
       getClientTopObjections(sb, scopeArgs, 10),
-      getClientConversationDepth(sb, scopeArgs),
-      listAllowedCampaigns(sb, scopeArgs)
+      getClientConversationDepth(sb, scopeArgs)
     ]);
 
   const funnel = dateActive ? deriveFunnelFromDispositions(dispositions) : funnelAllTime;

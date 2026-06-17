@@ -10,7 +10,8 @@ import {
   getClientHotWarmLeads,
   listAllowedCampaigns
 } from '@/lib/queries/client';
-import { resolveCampaignFilter } from '@/lib/queries/scope';
+import { getComingSoonCampaign, resolveCampaignFilter } from '@/lib/queries/scope';
+import { ComingSoonView } from '@/components/dashboard/ComingSoonView';
 import { Header } from '@/components/layout/Header';
 import { RefreshButton } from '@/components/layout/RefreshButton';
 import { ReportsActions } from './reports-actions';
@@ -29,11 +30,31 @@ export default async function ReportsPage({ searchParams }: PageProps) {
   const scopeArgs = { campaigns, scope: user.sourceScope };
 
   const sb = await createSupabaseServerClient();
-  const [funnel, dispositionRows, leads, campaignOptions] = await Promise.all([
+  const campaignOptions = await listAllowedCampaigns(sb, scopeArgs);
+  const comingSoon = getComingSoonCampaign(user, picked, campaignOptions);
+  if (comingSoon) {
+    return (
+      <>
+        <Header
+          email={user.email ?? ''}
+          role={user.role}
+          displayName={user.displayName}
+          context="UGSOT · Client View"
+          title="Reports"
+          subtitle=""
+          toolbar={<RefreshButton />}
+          campaignOptions={campaignOptions}
+          currentCampaign={picked ?? null}
+          allowAggregate={false}
+        />
+        <ComingSoonView campaignDisplayName={comingSoon.display_name} />
+      </>
+    );
+  }
+  const [funnel, dispositionRows, leads] = await Promise.all([
     getClientFunnel(sb, scopeArgs),
     getClientDispositionBreakdown(sb, undefined, scopeArgs),
-    getClientHotWarmLeads(sb, scopeArgs),
-    listAllowedCampaigns(sb, scopeArgs)
+    getClientHotWarmLeads(sb, scopeArgs)
   ]);
   // Reports component expects {lead_stage, lead_count} shape — adapt.
   const dispositions = dispositionRows.map((d) => ({ lead_stage: d.stage, lead_count: d.count }));

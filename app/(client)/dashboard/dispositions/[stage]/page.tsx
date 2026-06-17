@@ -8,7 +8,8 @@ import { format as formatDate } from 'date-fns';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
 import { getCurrentUser } from '@/lib/auth/getUser';
 import { getClientLeadsByStage, listAllowedCampaigns } from '@/lib/queries/client';
-import { resolveCampaignFilter } from '@/lib/queries/scope';
+import { getComingSoonCampaign, resolveCampaignFilter } from '@/lib/queries/scope';
+import { ComingSoonView } from '@/components/dashboard/ComingSoonView';
 import { stageFromSlug, stageMeta } from '@/lib/lead-stages';
 import {
   decodeDateRange,
@@ -40,11 +41,29 @@ export default async function DispositionStagePage({ params, searchParams }: Pag
   const scopeArgs = { campaigns, scope: user.sourceScope };
 
   const sb = await createSupabaseServerClient();
-  const [leads, campaignOptions] = await Promise.all([
-    getClientLeadsByStage(sb, stage, range, scopeArgs),
-    listAllowedCampaigns(sb, scopeArgs)
-  ]);
+  const campaignOptions = await listAllowedCampaigns(sb, scopeArgs);
+  const comingSoon = getComingSoonCampaign(user, picked, campaignOptions);
   const meta = stageMeta(stage);
+  if (comingSoon) {
+    return (
+      <>
+        <Header
+          email={user.email ?? ''}
+          role={user.role}
+          displayName={user.displayName}
+          context="UGSOT · Client View · Dispositions"
+          title={meta.label}
+          subtitle=""
+          toolbar={<RefreshButton />}
+          campaignOptions={campaignOptions}
+          currentCampaign={picked ?? null}
+          allowAggregate={false}
+        />
+        <ComingSoonView campaignDisplayName={comingSoon.display_name} />
+      </>
+    );
+  }
+  const leads = await getClientLeadsByStage(sb, stage, range, scopeArgs);
 
   // Preserve date + campaign on the back-link.
   const backParams = encodeDateRange(range, 'd');

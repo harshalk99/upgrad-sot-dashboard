@@ -46,3 +46,18 @@ export type ScopeArgs = {
   campaigns: string[] | null;
   scope?: string[];
 };
+
+/** When the picked campaign is `visibility=coming_soon` AND the viewer is NOT
+ *  a super_admin, return the campaign's display_name so the caller can render
+ *  a placeholder instead of running queries. Returns null otherwise. */
+export function getComingSoonCampaign(
+  user: CurrentUser,
+  picked: string | undefined,
+  campaigns: { campaign_id: string; display_name: string; visibility: 'all' | 'coming_soon' }[]
+): { campaign_id: string; display_name: string } | null {
+  if (!picked) return null;
+  if (user.role === 'super_admin') return null;
+  const c = campaigns.find((x) => x.campaign_id === picked);
+  if (!c || c.visibility !== 'coming_soon') return null;
+  return { campaign_id: c.campaign_id, display_name: c.display_name };
+}

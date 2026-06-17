@@ -7,7 +7,8 @@ import { format as formatDate } from 'date-fns';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
 import { getCurrentUser } from '@/lib/auth/getUser';
 import { getClientDispositionBreakdown, listAllowedCampaigns } from '@/lib/queries/client';
-import { resolveCampaignFilter, resolveSourceFilter } from '@/lib/queries/scope';
+import { getComingSoonCampaign, resolveCampaignFilter, resolveSourceFilter } from '@/lib/queries/scope';
+import { ComingSoonView } from '@/components/dashboard/ComingSoonView';
 import { decodeDateRange, encodeDateRange, hasDateRange } from '@/lib/url-filters';
 import { Header } from '@/components/layout/Header';
 import { RefreshButton } from '@/components/layout/RefreshButton';
@@ -33,10 +34,28 @@ export default async function DispositionsPage({ searchParams }: PageProps) {
   const filters = resolveSourceFilter(user, undefined);
 
   const sb = await createSupabaseServerClient();
-  const [dispositions, campaignOptions] = await Promise.all([
-    getClientDispositionBreakdown(sb, range, scopeArgs, filters),
-    listAllowedCampaigns(sb, scopeArgs)
-  ]);
+  const campaignOptions = await listAllowedCampaigns(sb, scopeArgs);
+  const comingSoon = getComingSoonCampaign(user, picked, campaignOptions);
+  if (comingSoon) {
+    return (
+      <>
+        <Header
+          email={user.email ?? ''}
+          role={user.role}
+          displayName={user.displayName}
+          context="UGSOT · Client View"
+          title="Dispositions"
+          subtitle=""
+          toolbar={<RefreshButton />}
+          campaignOptions={campaignOptions}
+          currentCampaign={picked ?? null}
+          allowAggregate={false}
+        />
+        <ComingSoonView campaignDisplayName={comingSoon.display_name} />
+      </>
+    );
+  }
+  const dispositions = await getClientDispositionBreakdown(sb, range, scopeArgs, filters);
   const donutShape = dispositions.map((d) => ({ lead_stage: d.stage, lead_count: d.count }));
 
   const subtitle = hasDateRange(range)

@@ -17,7 +17,8 @@ import {
   listAllowedCampaigns,
   type ConnectivityFilters
 } from '@/lib/queries/client';
-import { resolveCampaignFilter, resolveSourceFilter } from '@/lib/queries/scope';
+import { getComingSoonCampaign, resolveCampaignFilter, resolveSourceFilter } from '@/lib/queries/scope';
+import { ComingSoonView } from '@/components/dashboard/ComingSoonView';
 import {
   CONNECTIVITY_SHORT_TO_FULL,
   decodeFiltersFromSearchParams
@@ -57,12 +58,33 @@ export default async function ConnectivityPage({ searchParams }: PageProps) {
 
   const sb = await createSupabaseServerClient();
 
-  const [funnel, sources, daily, options, campaignOptions] = await Promise.all([
+  const campaignOptions = await listAllowedCampaigns(sb, scopeArgs);
+  const comingSoon = getComingSoonCampaign(user, picked, campaignOptions);
+  if (comingSoon) {
+    return (
+      <>
+        <Header
+          email={user.email ?? ''}
+          role={user.role}
+          displayName={user.displayName}
+          context="UGSOT · Client View"
+          title="Connectivity"
+          subtitle=""
+          toolbar={<RefreshButton />}
+          campaignOptions={campaignOptions}
+          currentCampaign={picked ?? null}
+          allowAggregate={false}
+        />
+        <ComingSoonView campaignDisplayName={comingSoon.display_name} />
+      </>
+    );
+  }
+
+  const [funnel, sources, daily, options] = await Promise.all([
     getClientEngagementFunnel(sb, scopeArgs, filters),
     getClientEngagementBySource(sb, scopeArgs, filters),
     getClientConnectivityDaily(sb, scopeArgs, filters),
-    getClientConnectivityFilterOptions(sb, scopeArgs),
-    listAllowedCampaigns(sb, scopeArgs)
+    getClientConnectivityFilterOptions(sb, scopeArgs)
   ]);
 
   const connectRate =
