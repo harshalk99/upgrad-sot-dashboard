@@ -8,7 +8,6 @@
 // resolved from the user's scope) — this client component is purely UI.
 
 import { useRouter, usePathname, useSearchParams } from 'next/navigation';
-import { useMemo } from 'react';
 import { Check, ChevronDown } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
@@ -50,13 +49,11 @@ export function CampaignSwitcher({ current, options, allowAggregate }: Props) {
   }
 
   const activeKey = current ?? (allowAggregate ? ALL_VALUE : options[0]?.campaign_id);
-  const activeLabel = useMemo(() => {
-    if (current) {
-      return options.find((o) => o.campaign_id === current)?.display_name ?? current;
-    }
-    if (allowAggregate) return 'All campaigns';
-    return options[0]?.display_name ?? '—';
-  }, [current, options, allowAggregate]);
+  const activeLabel = current
+    ? options.find((o) => o.campaign_id === current)?.display_name ?? current
+    : allowAggregate
+    ? 'All campaigns'
+    : options[0]?.display_name ?? '—';
 
   function selectCampaign(value: string) {
     const params = new URLSearchParams(searchParams?.toString() ?? '');
