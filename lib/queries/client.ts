@@ -406,6 +406,10 @@ export async function getClientConnectivityFilterOptions(
 }
 
 // ─── Per-day connectivity trend ────────────────────────────────────────────
+// Unique-lead counts per IST day. "connected" = lead picked up ≥1 call that
+// day (duration_seconds > 0) — robust to AI-classification lag. "engaged" =
+// lead reached HOT/WARM/CB_LATER, which is classification-derived and only
+// populates once the post-call AI pipeline runs for that day.
 
 export type ConnectivityDailyRow = {
   day: string;
