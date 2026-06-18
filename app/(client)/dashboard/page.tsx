@@ -18,7 +18,6 @@ import {
   getClientFunnel,
   getClientMinutesSummary,
   getClientMinutesByCampaignCycle,
-  getClientStatePerformance,
   getClientTopObjections,
   listAllowedCampaigns
 } from '@/lib/queries/client';
@@ -34,7 +33,6 @@ import { MetricCardGrid } from '@/components/dashboard/MetricCardGrid';
 import { ChartCard } from '@/components/charts/ChartCard';
 import { FunnelChart } from '@/components/charts/FunnelChart';
 import { StageBreakdownGrid } from '@/components/dashboard/StageBreakdownGrid';
-import { PerformanceTable } from '@/components/dashboard/PerformanceTable';
 import { DateRangeFilter } from '@/components/dashboard/DateRangeFilter';
 
 type PageProps = {
@@ -120,7 +118,7 @@ export default async function DashboardOverviewPage({ searchParams }: PageProps)
 
   const showMinutesCards = user.role !== 'digital_partner';
 
-  const [funnelAllTime, dispositions, minutes, minutesByCampaign, states, avgCall, objections, depth] =
+  const [funnelAllTime, dispositions, minutes, minutesByCampaign, avgCall, objections, depth] =
     await Promise.all([
       getClientFunnel(sb, scopeArgs, filtersForOverview),
       getClientDispositionBreakdown(sb, dispRange, scopeArgs, filtersForOverview),
@@ -128,7 +126,6 @@ export default async function DashboardOverviewPage({ searchParams }: PageProps)
       showMinutesCards
         ? getClientMinutesByCampaignCycle(sb, scopeArgs)
         : Promise.resolve([]),
-      getClientStatePerformance(sb, scopeArgs),
       getClientAvgCallDuration(sb, scopeArgs),
       getClientTopObjections(sb, scopeArgs, 10),
       getClientConversationDepth(sb, scopeArgs)
@@ -160,15 +157,6 @@ export default async function DashboardOverviewPage({ searchParams }: PageProps)
       : (minutes?.utilization_pct ?? 0) >= 75
       ? { warn: 75, critical: 90 }
       : undefined;
-
-  const stateRows = states.map((s) => ({
-    label: s.state,
-    total: s.total_leads,
-    connected: s.connected,
-    hot: s.hot,
-    warm: s.warm,
-    qualPct: Number(s.qualification_rate_pct ?? 0)
-  }));
 
   const contextLabel =
     user.role === 'super_admin'
@@ -267,14 +255,6 @@ export default async function DashboardOverviewPage({ searchParams }: PageProps)
             </div>
           </ChartCard>
         </div>
-
-        <ChartCard
-          title="Performance by State"
-          subtitle="Geographic distribution and where high-intent leads concentrate · slice by source/UTM on the Connectivity page"
-          height="auto"
-        >
-          <PerformanceTable rows={stateRows} limit={8} />
-        </ChartCard>
 
         <div className="grid gap-4 lg:grid-cols-2">
           <ChartCard

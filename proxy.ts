@@ -45,7 +45,12 @@ export async function proxy(request: NextRequest) {
     .eq('user_id', user.id)
     .single();
 
-  const role = (roleRow?.role ?? null) as 'client' | 'admin' | 'super_admin' | null;
+  const role = (roleRow?.role ?? null) as
+    | 'client'
+    | 'digital_partner'
+    | 'admin'
+    | 'super_admin'
+    | null;
 
   // No role assigned → forbid (UI also shows "Access pending" on login)
   if (!role) {
@@ -64,8 +69,9 @@ export async function proxy(request: NextRequest) {
     url.pathname = role === 'admin' ? '/admin' : '/dashboard';
     return NextResponse.redirect(url);
   }
-  // /admin → admin or super_admin only.
-  if (pathname.startsWith('/admin') && role === 'client') {
+  // /admin → admin or super_admin only. Anything below that (client,
+  // digital_partner) is bounced to /dashboard.
+  if (pathname.startsWith('/admin') && role !== 'admin' && role !== 'super_admin') {
     const url = request.nextUrl.clone();
     url.pathname = '/dashboard';
     return NextResponse.redirect(url);

@@ -36,13 +36,15 @@ export type NavItem = {
 };
 
 export const NAV_ITEMS: NavItem[] = [
-  // Business (client + admin + super_admin)
-  { module_key: 'overview',                label: 'Overview',           href: '/dashboard',                   icon: LayoutDashboard, roles: ['client','admin','super_admin'], group: 'business' },
-  { module_key: 'connectivity',            label: 'Connectivity',       href: '/dashboard/connectivity',      icon: Activity,        roles: ['client','admin','super_admin'], group: 'business' },
-  { module_key: 'dispositions',            label: 'Dispositions',       href: '/dashboard/dispositions',      icon: PieChart,        roles: ['client','admin','super_admin'], group: 'business' },
-  { module_key: 'hot_warm_leads',          label: 'Hot & Warm Leads',   href: '/dashboard/leads',             icon: Flame,           roles: ['client','admin','super_admin'], group: 'business' },
+  // Business (client + digital_partner + admin + super_admin).
+  // digital_partner is a scoped flavour of client — same business nav, minus
+  // Connected Calls (billing audit is UGSOT-level, not a partner concern).
+  { module_key: 'overview',                label: 'Overview',           href: '/dashboard',                   icon: LayoutDashboard, roles: ['client','digital_partner','admin','super_admin'], group: 'business' },
+  { module_key: 'connectivity',            label: 'Connectivity',       href: '/dashboard/connectivity',      icon: Activity,        roles: ['client','digital_partner','admin','super_admin'], group: 'business' },
+  { module_key: 'dispositions',            label: 'Dispositions',       href: '/dashboard/dispositions',      icon: PieChart,        roles: ['client','digital_partner','admin','super_admin'], group: 'business' },
+  { module_key: 'hot_warm_leads',          label: 'Hot & Warm Leads',   href: '/dashboard/leads',             icon: Flame,           roles: ['client','digital_partner','admin','super_admin'], group: 'business' },
   // Minutes Used removed per UGSOT request 2026-05-23 — client should not see call-duration aggregates.
-  { module_key: 'reports',                 label: 'Reports',            href: '/dashboard/reports',           icon: FileText,        roles: ['client','admin','super_admin'], group: 'business' },
+  { module_key: 'reports',                 label: 'Reports',            href: '/dashboard/reports',           icon: FileText,        roles: ['client','digital_partner','admin','super_admin'], group: 'business' },
   { module_key: 'connected_calls',         label: 'Connected Calls',    href: '/dashboard/connected-calls',   icon: PhoneCall,       roles: ['client','admin','super_admin'], group: 'business' },
 
   // Operations (admin + super_admin)
