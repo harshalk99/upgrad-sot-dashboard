@@ -20,7 +20,7 @@ import {
 export type MetricCardProps = {
   title: string;
   value: number | string;
-  subtitle?: string;
+  subtitle?: import('react').ReactNode;
   trend?: 'up' | 'down' | 'flat';
   trendValue?: string;
   sparklineData?: number[];

@@ -146,19 +146,21 @@ export async function getClientMinutesSummary(
   return (row ?? null) as ClientMinutesSummary | null;
 }
 
-// Calendar-month breakup by campaign.
+// Per-campaign breakup over the current 8th-to-8th billing cycle. Excludes
+// coming_soon campaigns (Kannada) so a not-yet-launched campaign never shows
+// usage in the client view.
 export type ClientMinutesByCampaignRow = {
   campaign_id: string;
   display_name: string;
   minutes_used: number;
 };
 
-export async function getClientMinutesByCampaignCurrentMonth(
+export async function getClientMinutesByCampaignCycle(
   sb: SB,
   scope: ScopeArgs
 ): Promise<ClientMinutesByCampaignRow[]> {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { data } = await (sb as any).rpc('client_minutes_by_campaign_current_month', {
+  const { data } = await (sb as any).rpc('client_minutes_by_campaign_cycle', {
     p_campaign_id: scope.campaigns
   });
   return (data ?? []).map((r: { campaign_id: string; display_name: string; minutes_used: string | number }) => ({

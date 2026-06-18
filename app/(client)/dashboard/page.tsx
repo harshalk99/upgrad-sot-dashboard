@@ -8,7 +8,7 @@
 //     drill-in, and digital_partner scoped view.
 //   - Voice Minutes cards (cycle + this month) are hidden for digital_partner.
 
-import { Flame, Heart, Clock, Timer, CalendarRange } from 'lucide-react';
+import { Flame, Heart, Clock, Timer } from 'lucide-react';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
 import { getCurrentUser } from '@/lib/auth/getUser';
 import {
@@ -17,7 +17,7 @@ import {
   getClientDispositionBreakdown,
   getClientFunnel,
   getClientMinutesSummary,
-  getClientMinutesByCampaignCurrentMonth,
+  getClientMinutesByCampaignCycle,
   getClientStatePerformance,
   getClientTopObjections,
   listAllowedCampaigns
@@ -126,7 +126,7 @@ export default async function DashboardOverviewPage({ searchParams }: PageProps)
       getClientDispositionBreakdown(sb, dispRange, scopeArgs, filtersForOverview),
       showMinutesCards ? getClientMinutesSummary(sb, scopeArgs) : Promise.resolve(null),
       showMinutesCards
-        ? getClientMinutesByCampaignCurrentMonth(sb, scopeArgs)
+        ? getClientMinutesByCampaignCycle(sb, scopeArgs)
         : Promise.resolve([]),
       getClientStatePerformance(sb, scopeArgs),
       getClientAvgCallDuration(sb, scopeArgs),
@@ -170,7 +170,6 @@ export default async function DashboardOverviewPage({ searchParams }: PageProps)
     qualPct: Number(s.qualification_rate_pct ?? 0)
   }));
 
-  const monthTotalMinutes = minutesByCampaign.reduce((acc, r) => acc + (r.minutes_used ?? 0), 0);
   const contextLabel =
     user.role === 'super_admin'
       ? 'Predixion · Strategic View'
@@ -196,7 +195,7 @@ export default async function DashboardOverviewPage({ searchParams }: PageProps)
       />
 
       <div className="space-y-6 p-6">
-        <MetricCardGrid cols={showMinutesCards ? 6 : 4}>
+        <MetricCardGrid cols={showMinutesCards ? 5 : 4}>
           <MetricCard title="Hot Leads" value={funnel?.hot ?? 0} icon={Flame} />
           <MetricCard title="Warm Leads" value={funnel?.warm ?? 0} icon={Heart} />
           <MetricCard
@@ -210,37 +209,35 @@ export default async function DashboardOverviewPage({ searchParams }: PageProps)
             subtitle={`${(funnel?.connected ?? 0).toLocaleString('en-IN')} / ${(funnel?.attempted ?? 0).toLocaleString('en-IN')}`}
           />
           {showMinutesCards && (
-            <>
-              <MetricCard
-                title="Voice Minutes (Cycle)"
-                value={`${minutes?.minutes_used ?? 0}`}
-                subtitle={
-                  minutes?.billing_cycle_start && minutes?.billing_cycle_end
-                    ? `${formatPct(minutes.utilization_pct)} of ${minutes.allocated_minutes ?? 0} · ${formatDate(new Date(minutes.billing_cycle_start), 'd MMM')} – ${formatDate(new Date(new Date(minutes.billing_cycle_end).getTime() - 86_400_000), 'd MMM')}`
-                    : `${formatPct(minutes?.utilization_pct)} of ${minutes?.allocated_minutes ?? 0}`
-                }
-                threshold={minutesUtilSeverity}
-                invert
-                icon={Clock}
-                help="Billing cycle runs the 8th of each month to the 7th of the next. The counter resets every 8th. Allocation per WO-DOT-UGSOT-053."
-              />
-              <MetricCard
-                title="Voice Minutes (This Month)"
-                value={monthTotalMinutes.toLocaleString('en-IN')}
-                subtitle={
-                  minutesByCampaign.length === 0
-                    ? 'No usage this calendar month'
-                    : minutesByCampaign
-                        .slice(0, 3)
-                        .map((r) => `${r.display_name}: ${r.minutes_used.toLocaleString('en-IN')}`)
-                        .join(' · ')
-                }
-                icon={CalendarRange}
-                help={
-                  'Total voice-minute usage from the 1st of the calendar month (IST) to today, across every campaign you can see. Breakup lists each campaign by name.'
-                }
-              />
-            </>
+            <MetricCard
+              title="Voice Minutes (Cycle)"
+              value={`${minutes?.minutes_used ?? 0}`}
+              subtitle={
+                <div className="space-y-1">
+                  <div>
+                    {minutes?.billing_cycle_start && minutes?.billing_cycle_end
+                      ? `${formatPct(minutes.utilization_pct)} of ${minutes.allocated_minutes ?? 0} · ${formatDate(new Date(minutes.billing_cycle_start), 'd MMM')} – ${formatDate(new Date(new Date(minutes.billing_cycle_end).getTime() - 86_400_000), 'd MMM')}`
+                      : `${formatPct(minutes?.utilization_pct)} of ${minutes?.allocated_minutes ?? 0}`}
+                  </div>
+                  {minutesByCampaign.length > 1 && (
+                    <ul className="space-y-0.5 border-t border-border/40 pt-1">
+                      {minutesByCampaign.slice(0, 4).map((r) => (
+                        <li key={r.campaign_id} className="flex justify-between gap-2">
+                          <span className="truncate">{r.display_name}</span>
+                          <span className="font-mono tabular-nums">
+                            {r.minutes_used.toLocaleString('en-IN')}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              }
+              threshold={minutesUtilSeverity}
+              invert
+              icon={Clock}
+              help="Voice-minute usage for the current billing cycle — 8th of each month to the 7th of the next (resets every 8th). When you can see more than one campaign, the breakup lists each campaign's minutes for the cycle. Allocation per WO-DOT-UGSOT-053."
+            />
           )}
         </MetricCardGrid>
 
