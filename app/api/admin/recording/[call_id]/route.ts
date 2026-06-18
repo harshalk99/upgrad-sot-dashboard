@@ -97,17 +97,29 @@ export async function GET(
     const [activeRes, archivedRes] = await Promise.all([
       sbAny
         .from('upgrad_active_leads')
-        .select('lead_stage')
+        .select('lead_stage, data_source_name')
         .eq('ls_prospect_id', row.lead_id)
         .maybeSingle(),
       sbAny
         .from('upgrad_archived_leads')
-        .select('lead_stage')
+        .select('lead_stage, data_source_name')
         .eq('ls_prospect_id', row.lead_id)
         .maybeSingle()
     ]);
-    const leadStage: string | null =
-      activeRes?.data?.lead_stage ?? archivedRes?.data?.lead_stage ?? null;
+    const leadRow = activeRes?.data ?? archivedRes?.data ?? null;
+    const leadStage: string | null = leadRow?.lead_stage ?? null;
+    const leadSource: string | null = leadRow?.data_source_name ?? null;
+
+    // Scoped users (digital_partner) can only reach recordings for leads
+    // within their data_source_name allowlist — same wall the rest of their
+    // view enforces.
+    if (user.sourceScope?.length && (!leadSource || !user.sourceScope.includes(leadSource))) {
+      return NextResponse.json(
+        { error: 'Recording playback is restricted to authorised users.' },
+        { status: 403 }
+      );
+    }
+
     const isExtendedEra =
       callStartMs !== null &&
       callStartMs >= RECORDING_EXTENDED_STAGES_CUTOFF_UTC.getTime();
