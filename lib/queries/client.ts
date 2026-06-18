@@ -406,10 +406,14 @@ export async function getClientConnectivityFilterOptions(
 }
 
 // ─── Per-day connectivity trend ────────────────────────────────────────────
-// Unique-lead counts per IST day. "connected" = lead picked up ≥1 call that
-// day (duration_seconds > 0) — robust to AI-classification lag. "engaged" =
-// lead reached HOT/WARM/CB_LATER, which is classification-derived and only
-// populates once the post-call AI pipeline runs for that day.
+// Unique-lead counts per IST day, all derived from facts that don't depend on
+// the lagging call-level enquiry_classification column:
+//   connected = lead picked up ≥1 call that day (duration_seconds > 0)
+//   engaged   = connected that day AND current lead_stage is a buying-signal
+//               stage (High Intent, Warm, CB Later, Sent Brochure, Sent
+//               Payment Link). Stage-based so it's stable + consistent with
+//               the funnel/disposition cards, and clamped to "connected that
+//               day" so engaged never exceeds connected on any day.
 
 export type ConnectivityDailyRow = {
   day: string;
