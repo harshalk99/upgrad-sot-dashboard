@@ -24,7 +24,7 @@ import {
 } from '@tanstack/react-table';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
-import { formatDateTimeIST } from '@/lib/formatters';
+import { formatDateOnly } from '@/lib/formatters';
 import { toast } from 'sonner';
 import type { ConnectedCallRow } from '@/lib/queries/client';
 
@@ -114,7 +114,7 @@ export function ConnectedCallsTable({ data, serverTotal, renderedCount }: Props)
         ),
         cell: ({ row }) => (
           <span className="font-mono text-xs tabular-nums">
-            {row.original.call_start ? formatDateTimeIST(row.original.call_start) : '—'}
+            {row.original.call_start ? formatDateOnly(row.original.call_start) : '—'}
           </span>
         )
       },
@@ -164,13 +164,13 @@ export function ConnectedCallsTable({ data, serverTotal, renderedCount }: Props)
       toast.error('Nothing to export');
       return;
     }
-    const headers = ['ls_prospect_id', 'call_start_ist', 'duration_seconds', 'duration_minutes'];
+    const headers = ['ls_prospect_id', 'call_date_ist', 'duration_seconds', 'duration_minutes'];
     const lines = rows.map((r) => {
       const d = r.original;
       const minutes = Math.round((d.duration_seconds / 60) * 100) / 100;
       return [
         escapeCsv(d.ls_prospect_id),
-        escapeCsv(d.call_start ? formatDateTimeIST(d.call_start) : ''),
+        escapeCsv(d.call_start ? formatDateOnly(d.call_start) : ''),
         escapeCsv(d.duration_seconds),
         escapeCsv(minutes)
       ].join(',');
